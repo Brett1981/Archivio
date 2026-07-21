@@ -1,0 +1,9 @@
+<Application x:Class="Archivio.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+        <SolidColorBrush x:Key="ArchivioBackground" Color="#111827" />
+        <SolidColorBrush x:Key="ArchivioPanel" Color="#1F2937" />
+        <SolidColorBrush x:Key="ArchivioAccent" Color="#38BDF8" />
+    </Application.Resources>
+</Application>

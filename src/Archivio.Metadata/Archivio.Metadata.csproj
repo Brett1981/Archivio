@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Archivio.Application/Archivio.Application.csproj" />
+    <ProjectReference Include="../Archivio.Domain/Archivio.Domain.csproj" />
+  </ItemGroup>
+</Project>

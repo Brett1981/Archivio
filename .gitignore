@@ -1,0 +1,12 @@
+[Bb]in/
+[Oo]bj/
+.vs/
+.idea/
+*.user
+*.suo
+*.db
+*.db-shm
+*.db-wal
+artifacts/
+TestResults/
+logs/
