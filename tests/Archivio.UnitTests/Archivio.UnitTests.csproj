@@ -6,6 +6,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Archivio.Application/Archivio.Application.csproj" />
     <ProjectReference Include="../../src/Archivio.Domain/Archivio.Domain.csproj" />
+    <ProjectReference Include="../../src/Archivio.Media/Archivio.Media.csproj" />
     <ProjectReference Include="../../src/Archivio.Shared/Archivio.Shared.csproj" />
   </ItemGroup>
   <ItemGroup>
