@@ -52,12 +52,12 @@ public sealed class LibrarySourceTests
 
         source.Rename("Soundtracks");
         source.ChangePath(Path.Combine(Path.GetTempPath(), "Soundtracks"));
-        source.ChangeType(LibrarySourceType.Other);
+        source.ChangeType(LibrarySourceType.Mixed);
         source.SetEnabled(false);
 
         Assert.Equal("Soundtracks", source.Name);
         Assert.Equal(Path.GetFullPath(Path.Combine(Path.GetTempPath(), "Soundtracks")), source.Path);
-        Assert.Equal(LibrarySourceType.Other, source.Type);
+        Assert.Equal(LibrarySourceType.Mixed, source.Type);
         Assert.False(source.IsEnabled);
         Assert.True(source.UpdatedAtUtc >= originalTimestamp);
     }
