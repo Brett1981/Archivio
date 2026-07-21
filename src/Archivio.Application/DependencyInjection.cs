@@ -1,4 +1,6 @@
+using Archivio.Application.Abstractions;
 using Archivio.Application.Configuration;
+using Archivio.Application.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -12,6 +14,8 @@ public static class DependencyInjection
             .Bind(configuration.GetSection(ArchivioOptions.SectionName))
             .ValidateDataAnnotations()
             .ValidateOnStart();
+
+        services.AddScoped<ILibrarySourceService, LibrarySourceService>();
 
         return services;
     }
