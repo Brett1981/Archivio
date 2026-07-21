@@ -17,6 +17,7 @@ public static class DependencyInjection
             options.UseSqlite($"Data Source={paths.DatabasePath}");
         });
 
+        services.AddScoped<ILibrarySourceRepository, LibrarySourceRepository>();
         services.AddSingleton<IDatabaseInitializer, DatabaseInitializer>();
         return services;
     }
