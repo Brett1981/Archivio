@@ -17,6 +17,7 @@ public static class DependencyInjection
 
         services.AddScoped<ILibrarySourceService, LibrarySourceService>();
         services.AddScoped<ILibraryScanService, LibraryScanService>();
+        services.AddScoped<IMediaCatalogueService, MediaCatalogueService>();
 
         return services;
     }
