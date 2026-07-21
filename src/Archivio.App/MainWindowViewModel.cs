@@ -14,16 +14,19 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly ILibrarySourceService _librarySourceService;
     private readonly IFolderPickerService _folderPickerService;
     private readonly IBackgroundScanService _backgroundScanService;
+    private readonly IMediaCatalogueService _mediaCatalogueService;
 
     public MainWindowViewModel(
         IOptions<ArchivioOptions> options,
         ILibrarySourceService librarySourceService,
         IFolderPickerService folderPickerService,
-        IBackgroundScanService backgroundScanService)
+        IBackgroundScanService backgroundScanService,
+        IMediaCatalogueService mediaCatalogueService)
     {
         _librarySourceService = librarySourceService;
         _folderPickerService = folderPickerService;
         _backgroundScanService = backgroundScanService;
+        _mediaCatalogueService = mediaCatalogueService;
         _backgroundScanService.ProgressChanged += HandleScanProgress;
         _backgroundScanService.ScanCompleted += HandleScanCompleted;
         _backgroundScanService.ScanFailed += HandleScanFailed;
@@ -36,6 +39,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public string Version { get; }
     public IReadOnlyList<LibrarySourceType> SourceTypes { get; }
     public ObservableCollection<LibrarySource> LibrarySources { get; } = [];
+    public ObservableCollection<MediaItem> MediaItems { get; } = [];
+
+    public int MediaItemCount => MediaItems.Count;
+    public int MissingMediaItemCount => MediaItems.Count(item => item.IsMissing);
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SaveCommand))]
@@ -95,6 +102,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         if (value is null)
         {
+            MediaItems.Clear();
+            OnPropertyChanged(nameof(MediaItemCount));
+            OnPropertyChanged(nameof(MissingMediaItemCount));
             return;
         }
 
@@ -103,6 +113,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         SourceType = value.Type;
         SourceIsEnabled = value.IsEnabled;
         Status = $"Editing {value.Name}";
+        _ = LoadMediaItemsAsync(value.Id);
     }
 
     [RelayCommand]
@@ -234,6 +245,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         IsScanRunning = false;
         ScanStage = LibraryScanStage.Completed;
         Status = $"Scan complete: {result.AddedCount} added, {result.RefreshedCount} refreshed, {result.MissingCount} missing";
+        _ = LoadMediaItemsAsync(result.LibrarySourceId);
     });
 
     private void HandleScanFailed(Exception exception) => RunOnUiThread(() =>
@@ -242,6 +254,34 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ScanStage = LibraryScanStage.Failed;
         Status = exception.Message;
     });
+
+    private async Task LoadMediaItemsAsync(Guid librarySourceId)
+    {
+        try
+        {
+            var items = await _mediaCatalogueService.GetByLibrarySourceAsync(librarySourceId);
+            RunOnUiThread(() =>
+            {
+                if (SelectedSource?.Id != librarySourceId)
+                {
+                    return;
+                }
+
+                MediaItems.Clear();
+                foreach (var item in items)
+                {
+                    MediaItems.Add(item);
+                }
+
+                OnPropertyChanged(nameof(MediaItemCount));
+                OnPropertyChanged(nameof(MissingMediaItemCount));
+            });
+        }
+        catch (Exception exception)
+        {
+            RunOnUiThread(() => Status = exception.Message);
+        }
+    }
 
     private void ResetScanProgress()
     {
