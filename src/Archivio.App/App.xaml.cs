@@ -5,6 +5,7 @@ using Archivio.Application.Abstractions;
 using Archivio.Infrastructure;
 using Archivio.Media;
 using Archivio.Persistence;
+using Archivio.Workers;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -46,6 +47,7 @@ public partial class App : System.Windows.Application
                     services.AddInfrastructure();
                     services.AddPersistence();
                     services.AddMedia();
+                    services.AddWorkers();
                     services.AddSingleton<IFolderPickerService, FolderPickerService>();
                     services.AddSingleton<MainWindowViewModel>();
                     services.AddSingleton<MainWindow>();
