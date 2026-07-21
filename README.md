@@ -19,6 +19,23 @@ This milestone provides:
 
 No user media is scanned or modified in this milestone.
 
+## Milestone 2 — Library sources
+
+This milestone adds the first complete user-facing Archivio workflow:
+
+- persistent library-source records in SQLite
+- source types for mixed media, movies, television, music, audiobooks, documents, and photos
+- add, edit, enable/disable, and delete operations
+- native Windows folder selection
+- folder-existence validation
+- normalized duplicate-path protection
+- deterministic source ordering
+- WPF library-source management UI
+- application-service unit tests
+- SQLite repository integration tests
+
+Archivio stores only the selected folder metadata during this milestone. It does not scan, rename, move, delete, or otherwise modify files inside a library source.
+
 ## Requirements
 
 - Windows 10/11
@@ -51,24 +68,24 @@ Application data is stored under `%LOCALAPPDATA%\Archivio`.
 - `Archivio.Workers`: future background orchestration
 - `Archivio.Shared`: cross-cutting primitives only
 
-## Milestone review
+## Milestone 2 review
 
 - [ ] Restore succeeds with existing machine NuGet feeds
+- [ ] Debug build succeeds with zero warnings
 - [ ] Release build succeeds with warnings treated as errors
-- [ ] Unit tests pass
-- [ ] Integration tests create and migrate a temporary SQLite database
-- [ ] WPF shell opens
-- [ ] `%LOCALAPPDATA%\Archivio\logs` contains a log file
-- [ ] `%LOCALAPPDATA%\Archivio\data\archivio.db` exists
-
-## Patch 1.0.1
-
-The unit-test project intentionally references only non-UI projects. This avoids a target-framework mismatch between `net10.0` tests and the `net10.0-windows` WPF application.
-
-## Patch 1.0.2
-
-Added `Microsoft.Extensions.Options.DataAnnotations` to `Archivio.Application` so `ValidateDataAnnotations()` compiles during options registration.
+- [ ] All 23 unit tests pass
+- [ ] All 6 integration tests pass
+- [ ] WPF application opens
+- [ ] A library source can be added using the folder picker
+- [ ] A library source remains after restarting Archivio
+- [ ] A library source can be edited and enabled or disabled
+- [ ] Duplicate normalized paths are rejected
+- [ ] Missing folders are rejected
+- [ ] A library source can be deleted
+- [ ] No files inside a selected source are modified
 
 ## Patch history
 
-- 1.0.4: Added the missing EF Core migration discovery metadata and strengthened the migration integration test.
+- 1.0.1: Kept the unit-test project isolated from the Windows-only WPF project.
+- 1.0.2: Added `Microsoft.Extensions.Options.DataAnnotations` for startup options validation.
+- 1.0.4: Added EF Core migration discovery metadata and strengthened migration integration coverage.
