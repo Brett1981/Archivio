@@ -2,9 +2,9 @@ namespace Archivio.Application.Abstractions;
 
 public interface IBackgroundScanService
 {
-    event EventHandler<LibraryScanProgress>? ProgressChanged;
-    event EventHandler<LibraryScanResult>? ScanCompleted;
-    event EventHandler<Exception>? ScanFailed;
+    event Action<LibraryScanProgress>? ProgressChanged;
+    event Action<LibraryScanResult>? ScanCompleted;
+    event Action<Exception>? ScanFailed;
 
     bool IsRunning { get; }
 
