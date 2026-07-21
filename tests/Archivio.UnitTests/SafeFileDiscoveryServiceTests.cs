@@ -48,12 +48,13 @@ public sealed class SafeFileDiscoveryServiceTests
     }
 
     [Fact]
-    public void DiscoverAsync_RejectsMissingRootDirectory()
+    public async Task DiscoverAsync_RejectsMissingRootDirectory()
     {
         var service = new SafeFileDiscoveryService();
         var missingPath = Path.Combine(Path.GetTempPath(), $"Archivio-Missing-{Guid.NewGuid():N}");
 
-        var exception = Assert.Throws<DirectoryNotFoundException>(() => service.DiscoverAsync(missingPath));
+        var exception = await Assert.ThrowsAsync<DirectoryNotFoundException>(
+            () => service.DiscoverAsync(missingPath));
 
         Assert.Contains(Path.GetFullPath(missingPath), exception.Message, StringComparison.OrdinalIgnoreCase);
     }
