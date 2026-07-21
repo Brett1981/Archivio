@@ -7,6 +7,7 @@ public sealed class ArchivioDbContext(DbContextOptions<ArchivioDbContext> option
 {
     public DbSet<SystemRecord> SystemRecords => Set<SystemRecord>();
     public DbSet<LibrarySource> LibrarySources => Set<LibrarySource>();
+    public DbSet<MediaItem> MediaItems => Set<MediaItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -30,6 +31,28 @@ public sealed class ArchivioDbContext(DbContextOptions<ArchivioDbContext> option
             entity.Property(x => x.CreatedAtUtc).IsRequired();
             entity.Property(x => x.UpdatedAtUtc).IsRequired();
             entity.HasIndex(x => x.Path).IsUnique();
+        });
+
+        modelBuilder.Entity<MediaItem>(entity =>
+        {
+            entity.ToTable("MediaItems");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.FullPath).HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.RelativePath).HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.FileName).HasMaxLength(512).IsRequired();
+            entity.Property(x => x.Extension).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.ContentHash).HasMaxLength(128);
+            entity.Property(x => x.SizeBytes).IsRequired();
+            entity.Property(x => x.CreatedAtUtc).IsRequired();
+            entity.Property(x => x.ModifiedAtUtc).IsRequired();
+            entity.Property(x => x.LastScannedAtUtc).IsRequired();
+            entity.Property(x => x.IsMissing).IsRequired();
+            entity.HasIndex(x => new { x.LibrarySourceId, x.FullPath }).IsUnique();
+            entity.HasIndex(x => new { x.LibrarySourceId, x.RelativePath });
+            entity.HasOne(x => x.LibrarySource)
+                .WithMany()
+                .HasForeignKey(x => x.LibrarySourceId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }
