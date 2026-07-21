@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Windows.Data;
 using Archivio.Application.Services;
+using Archivio.Domain;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Archivio.App;
@@ -38,7 +39,7 @@ public sealed partial class MainWindowViewModel
 
     private bool FilterMediaItem(object item)
     {
-        if (item is not Domain.MediaItem mediaItem)
+        if (item is not MediaItem mediaItem)
         {
             return false;
         }
