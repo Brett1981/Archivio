@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Windows;
 using Archivio.Application.Abstractions;
 using Archivio.Application.Configuration;
 using Archivio.Domain;
@@ -12,14 +13,20 @@ public sealed partial class MainWindowViewModel : ObservableObject
 {
     private readonly ILibrarySourceService _librarySourceService;
     private readonly IFolderPickerService _folderPickerService;
+    private readonly IBackgroundScanService _backgroundScanService;
 
     public MainWindowViewModel(
         IOptions<ArchivioOptions> options,
         ILibrarySourceService librarySourceService,
-        IFolderPickerService folderPickerService)
+        IFolderPickerService folderPickerService,
+        IBackgroundScanService backgroundScanService)
     {
         _librarySourceService = librarySourceService;
         _folderPickerService = folderPickerService;
+        _backgroundScanService = backgroundScanService;
+        _backgroundScanService.ProgressChanged += HandleScanProgress;
+        _backgroundScanService.ScanCompleted += HandleScanCompleted;
+        _backgroundScanService.ScanFailed += HandleScanFailed;
         Title = options.Value.ProductName;
         Version = options.Value.Version;
         SourceTypes = Enum.GetValues<LibrarySourceType>();
@@ -46,13 +53,43 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(DeleteCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StartScanCommand))]
     private LibrarySource? _selectedSource;
 
     [ObservableProperty]
     private string _status = "Loading library sources...";
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SaveCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DeleteCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StartScanCommand))]
     private bool _isBusy;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(StartScanCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CancelScanCommand))]
+    private bool _isScanRunning;
+
+    [ObservableProperty]
+    private LibraryScanStage _scanStage = LibraryScanStage.Idle;
+
+    [ObservableProperty]
+    private int _scanDiscoveredCount;
+
+    [ObservableProperty]
+    private int _scanProcessedCount;
+
+    [ObservableProperty]
+    private int _scanAddedCount;
+
+    [ObservableProperty]
+    private int _scanRefreshedCount;
+
+    [ObservableProperty]
+    private int _scanMissingCount;
+
+    [ObservableProperty]
+    private string _scanCurrentPath = string.Empty;
 
     partial void OnSelectedSourceChanged(LibrarySource? value)
     {
@@ -75,7 +112,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             var sources = await _librarySourceService.GetAllAsync();
             LibrarySources.Clear();
-
             foreach (var source in sources)
             {
                 LibrarySources.Add(source);
@@ -108,10 +144,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    private bool CanSave() =>
-        !IsBusy &&
-        !string.IsNullOrWhiteSpace(SourceName) &&
-        !string.IsNullOrWhiteSpace(SourcePath);
+    private bool CanSave() => !IsBusy && !IsScanRunning &&
+        !string.IsNullOrWhiteSpace(SourceName) && !string.IsNullOrWhiteSpace(SourcePath);
 
     [RelayCommand(CanExecute = nameof(CanSave))]
     private async Task SaveAsync()
@@ -119,7 +153,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         await ExecuteAsync(async () =>
         {
             LibrarySource saved;
-
             if (SelectedSource is null)
             {
                 saved = await _librarySourceService.CreateAsync(SourceName, SourcePath, SourceType);
@@ -127,12 +160,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             }
             else
             {
-                saved = await _librarySourceService.UpdateAsync(
-                    SelectedSource.Id,
-                    SourceName,
-                    SourcePath,
-                    SourceType,
-                    SourceIsEnabled);
+                saved = await _librarySourceService.UpdateAsync(SelectedSource.Id, SourceName, SourcePath,
+                    SourceType, SourceIsEnabled);
                 Status = $"Updated {saved.Name}";
             }
 
@@ -140,7 +169,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         });
     }
 
-    private bool CanDelete() => !IsBusy && SelectedSource is not null;
+    private bool CanDelete() => !IsBusy && !IsScanRunning && SelectedSource is not null;
 
     [RelayCommand(CanExecute = nameof(CanDelete))]
     private async Task DeleteAsync()
@@ -151,7 +180,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         var deletedName = SelectedSource.Name;
-
         await ExecuteAsync(async () =>
         {
             await _librarySourceService.DeleteAsync(SelectedSource.Id);
@@ -161,24 +189,99 @@ public sealed partial class MainWindowViewModel : ObservableObject
         });
     }
 
+    private bool CanStartScan() => !IsBusy && !IsScanRunning && SelectedSource is { IsEnabled: true };
+
+    [RelayCommand(CanExecute = nameof(CanStartScan))]
+    private async Task StartScanAsync()
+    {
+        if (SelectedSource is null)
+        {
+            return;
+        }
+
+        ResetScanProgress();
+        IsScanRunning = await _backgroundScanService.QueueScanAsync(SelectedSource.Id);
+        Status = IsScanRunning ? $"Scanning {SelectedSource.Name}" : "A scan is already running";
+    }
+
+    private bool CanCancelScan() => IsScanRunning;
+
+    [RelayCommand(CanExecute = nameof(CanCancelScan))]
+    private void CancelScan()
+    {
+        _backgroundScanService.Cancel();
+        Status = "Cancelling scan...";
+    }
+
+    private void HandleScanProgress(LibraryScanProgress progress) => RunOnUiThread(() =>
+    {
+        ScanStage = progress.Stage;
+        ScanDiscoveredCount = progress.DiscoveredCount;
+        ScanProcessedCount = progress.ProcessedCount;
+        ScanAddedCount = progress.AddedCount;
+        ScanRefreshedCount = progress.RefreshedCount;
+        ScanMissingCount = progress.MissingCount;
+        ScanCurrentPath = progress.CurrentPath ?? string.Empty;
+        Status = progress.Status;
+        if (progress.Stage == LibraryScanStage.Cancelled)
+        {
+            IsScanRunning = false;
+        }
+    });
+
+    private void HandleScanCompleted(LibraryScanResult result) => RunOnUiThread(() =>
+    {
+        IsScanRunning = false;
+        ScanStage = LibraryScanStage.Completed;
+        Status = $"Scan complete: {result.AddedCount} added, {result.RefreshedCount} refreshed, {result.MissingCount} missing";
+    });
+
+    private void HandleScanFailed(Exception exception) => RunOnUiThread(() =>
+    {
+        IsScanRunning = false;
+        ScanStage = LibraryScanStage.Failed;
+        Status = exception.Message;
+    });
+
+    private void ResetScanProgress()
+    {
+        ScanStage = LibraryScanStage.Starting;
+        ScanDiscoveredCount = 0;
+        ScanProcessedCount = 0;
+        ScanAddedCount = 0;
+        ScanRefreshedCount = 0;
+        ScanMissingCount = 0;
+        ScanCurrentPath = string.Empty;
+    }
+
+    private static void RunOnUiThread(Action action)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess())
+        {
+            action();
+        }
+        else
+        {
+            dispatcher.Invoke(action);
+        }
+    }
+
     private async Task RefreshSourcesAsync(Guid? selectedId = null)
     {
         var sources = await _librarySourceService.GetAllAsync();
         LibrarySources.Clear();
-
         foreach (var source in sources)
         {
             LibrarySources.Add(source);
         }
 
-        SelectedSource = selectedId is null
-            ? null
-            : LibrarySources.FirstOrDefault(source => source.Id == selectedId);
+        SelectedSource = selectedId is null ? null : LibrarySources.FirstOrDefault(source => source.Id == selectedId);
     }
 
     private async Task ExecuteAsync(Func<Task> action)
     {
-        if (IsBusy)
+        if (IsBusy || IsScanRunning)
         {
             return;
         }
@@ -186,8 +289,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         try
         {
             IsBusy = true;
-            SaveCommand.NotifyCanExecuteChanged();
-            DeleteCommand.NotifyCanExecuteChanged();
             await action();
         }
         catch (Exception exception)
@@ -197,8 +298,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         finally
         {
             IsBusy = false;
-            SaveCommand.NotifyCanExecuteChanged();
-            DeleteCommand.NotifyCanExecuteChanged();
         }
     }
 }
