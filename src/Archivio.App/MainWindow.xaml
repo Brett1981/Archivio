@@ -70,15 +70,34 @@
                         </ListBox.ItemTemplate>
                     </ListBox>
 
-                    <DockPanel Grid.Row="4">
-                        <TextBlock Text="Indexed media" Foreground="White" FontSize="20" FontWeight="SemiBold" />
-                        <TextBlock DockPanel.Dock="Right" Foreground="#94A3B8">
-                            <Run Text="{Binding MediaItemCount, Mode=OneWay}" /><Run Text=" items  ·  " />
-                            <Run Text="{Binding MissingMediaItemCount, Mode=OneWay}" /><Run Text=" missing" />
-                        </TextBlock>
-                    </DockPanel>
+                    <Grid Grid.Row="4">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="10" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <DockPanel>
+                            <TextBlock Text="Indexed media" Foreground="White" FontSize="20" FontWeight="SemiBold" />
+                            <TextBlock DockPanel.Dock="Right" Foreground="#94A3B8">
+                                <Run Text="{Binding VisibleMediaItemCount, Mode=OneWay}" /><Run Text=" shown  ·  " />
+                                <Run Text="{Binding MediaItemCount, Mode=OneWay}" /><Run Text=" total  ·  " />
+                                <Run Text="{Binding MissingMediaItemCount, Mode=OneWay}" /><Run Text=" missing" />
+                            </TextBlock>
+                        </DockPanel>
+                        <Grid Grid.Row="2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox Text="{Binding MediaSearchText, UpdateSourceTrigger=PropertyChanged}"
+                                     Padding="10,7" ToolTip="Search file name, relative path, or extension" />
+                            <CheckBox Grid.Column="2" Content="Missing only" IsChecked="{Binding ShowMissingOnly}"
+                                      Foreground="White" VerticalAlignment="Center" />
+                        </Grid>
+                    </Grid>
 
-                    <ListBox Grid.Row="6" ItemsSource="{Binding MediaItems}" Background="Transparent" BorderThickness="0"
+                    <ListBox Grid.Row="6" ItemsSource="{Binding MediaItemsView}" Background="Transparent" BorderThickness="0"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
@@ -95,7 +114,18 @@
                                         <StackPanel Grid.Column="1" Margin="16,0,0,0" HorizontalAlignment="Right">
                                             <TextBlock Text="{Binding Extension}" Foreground="{StaticResource ArchivioAccent}" HorizontalAlignment="Right" />
                                             <TextBlock Text="{Binding SizeBytes, StringFormat={}{0:N0} bytes}" Foreground="#94A3B8" Margin="0,4,0,0" HorizontalAlignment="Right" />
-                                            <TextBlock Text="{Binding IsMissing, StringFormat=Missing: {0}}" Foreground="#F59E0B" Margin="0,4,0,0" HorizontalAlignment="Right" />
+                                            <TextBlock Text="Missing" Foreground="#F59E0B" Margin="0,4,0,0" HorizontalAlignment="Right">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsMissing}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
                                         </StackPanel>
                                     </Grid>
                                 </Border>
