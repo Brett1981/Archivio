@@ -16,6 +16,7 @@ public static class DependencyInjection
             .ValidateOnStart();
 
         services.AddScoped<ILibrarySourceService, LibrarySourceService>();
+        services.AddScoped<ILibraryScanService, LibraryScanService>();
 
         return services;
     }
