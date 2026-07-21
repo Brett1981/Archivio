@@ -44,6 +44,7 @@ public partial class App : System.Windows.Application
                     services.AddApplication(context.Configuration);
                     services.AddInfrastructure();
                     services.AddPersistence();
+                    services.AddSingleton<IFolderPickerService, FolderPickerService>();
                     services.AddSingleton<MainWindowViewModel>();
                     services.AddSingleton<MainWindow>();
                 })
