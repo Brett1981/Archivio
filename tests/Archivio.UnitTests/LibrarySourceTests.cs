@@ -19,22 +19,36 @@ public sealed class LibrarySourceTests
         Assert.Equal(source.CreatedAtUtc, source.UpdatedAtUtc);
     }
 
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("   ")]
-    public void Constructor_RejectsInvalidName(string? name)
+    [Fact]
+    public void Constructor_RejectsNullName()
     {
-        Assert.Throws<ArgumentException>(() => new LibrarySource(name!, Path.GetTempPath(), LibrarySourceType.Documents));
+        Assert.Throws<ArgumentNullException>(() =>
+            new LibrarySource(null!, Path.GetTempPath(), LibrarySourceType.Documents));
     }
 
     [Theory]
-    [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    public void Constructor_RejectsInvalidPath(string? path)
+    public void Constructor_RejectsEmptyOrWhitespaceName(string name)
     {
-        Assert.Throws<ArgumentException>(() => new LibrarySource("Documents", path!, LibrarySourceType.Documents));
+        Assert.Throws<ArgumentException>(() =>
+            new LibrarySource(name, Path.GetTempPath(), LibrarySourceType.Documents));
+    }
+
+    [Fact]
+    public void Constructor_RejectsNullPath()
+    {
+        Assert.Throws<ArgumentNullException>(() =>
+            new LibrarySource("Documents", null!, LibrarySourceType.Documents));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Constructor_RejectsEmptyOrWhitespacePath(string path)
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new LibrarySource("Documents", path, LibrarySourceType.Documents));
     }
 
     [Fact]
