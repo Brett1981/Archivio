@@ -34,7 +34,7 @@ public sealed class LibraryScanProgressTests
         Assert.Contains(progressValues, value => value.Stage == LibraryScanStage.Discovering);
         Assert.Contains(progressValues, value => value.Stage == LibraryScanStage.Reconciling && value.ProcessedCount == 1);
         Assert.Contains(progressValues, value => value.Stage == LibraryScanStage.Saving);
-        var completed = Assert.Single(progressValues.Where(value => value.Stage == LibraryScanStage.Completed));
+        var completed = Assert.Single(progressValues, value => value.Stage == LibraryScanStage.Completed);
         Assert.Equal(1, completed.DiscoveredCount);
         Assert.Equal(1, completed.AddedCount);
     }
