@@ -18,6 +18,7 @@ public static class DependencyInjection
         });
 
         services.AddScoped<ILibrarySourceRepository, LibrarySourceRepository>();
+        services.AddScoped<IMediaItemRepository, MediaItemRepository>();
         services.AddSingleton<IDatabaseInitializer, DatabaseInitializer>();
         return services;
     }
