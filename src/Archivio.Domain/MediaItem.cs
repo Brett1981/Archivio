@@ -72,6 +72,10 @@ public sealed class MediaItem
         return result.Length <= 2048 ? result : throw new ArgumentOutOfRangeException(nameof(path));
     }
 
-    private static DateTime EnsureUtc(DateTime value, string parameterName) =>
-        value.Kind == DateTimeKind.Utc ? value : throw new ArgumentException("Timestamp must be UTC.", parameterName);
+    private static DateTime EnsureUtc(DateTime value, string parameterName) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Unspecified => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+        _ => throw new ArgumentException("Timestamp must be UTC.", parameterName)
+    };
 }
