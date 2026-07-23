@@ -20,11 +20,24 @@ public sealed partial class MainWindowViewModel
     [ObservableProperty]
     private AudiobookCandidateGroup? _selectedAudiobookCandidate;
 
-    private bool CanAnalyseAudiobooks() => !IsBusy && !IsScanRunning && MediaItems.Count > 0;
-
-    [RelayCommand(CanExecute = nameof(CanAnalyseAudiobooks))]
+    [RelayCommand]
     private void AnalyseAudiobooks()
     {
+        if (IsBusy || IsScanRunning)
+        {
+            Status = "Audiobook analysis is unavailable while another operation is running";
+            return;
+        }
+
+        if (MediaItems.Count == 0)
+        {
+            ResetAudiobookAnalysis();
+            Status = SelectedSource is null
+                ? "Select a library source before analysing audiobooks"
+                : "The selected source has no indexed media to analyse";
+            return;
+        }
+
         var groups = _audiobookAnalysisService.Analyse(MediaItems);
         AudiobookCandidates.Clear();
         foreach (var group in groups)
@@ -44,7 +57,6 @@ public sealed partial class MainWindowViewModel
         AudiobookCandidates.Clear();
         SelectedAudiobookCandidate = null;
         NotifyAudiobookSummaryChanged();
-        AnalyseAudiobooksCommand.NotifyCanExecuteChanged();
     }
 
     private void NotifyAudiobookSummaryChanged()
