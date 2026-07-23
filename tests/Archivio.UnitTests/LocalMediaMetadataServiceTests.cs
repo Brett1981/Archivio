@@ -8,17 +8,21 @@ public sealed class LocalMediaMetadataServiceTests
     [Fact]
     public void Parser_RemovesTechnicalTokensAndPreservesSourceHints()
     {
-        var result = MetadataFilenameParser.Parse(@"C:\Audio\DivineComedy_dante_32kb_librivox.m4b");
+        var path = Path.Combine(Path.GetTempPath(), "Audio", "DivineComedy_dante_32kb_librivox.m4b");
+
+        var result = MetadataFilenameParser.Parse(path);
 
         Assert.Null(result.Author);
-        Assert.Equal("Divinecomedy Dante", result.Title);
+        Assert.Equal("Divine Comedy Dante", result.Title);
         Assert.Contains("LibriVox", result.SourceHints);
     }
 
     [Fact]
     public void Parser_UsesAuthorAndTitleFoldersWhenAvailable()
     {
-        var result = MetadataFilenameParser.Parse(@"C:\Audiobooks\Jane Austen\Pride and Prejudice\track01.m4b");
+        var path = Path.Combine(Path.GetTempPath(), "Audiobooks", "Jane Austen", "Pride and Prejudice", "track01.m4b");
+
+        var result = MetadataFilenameParser.Parse(path);
 
         Assert.Equal("Jane Austen", result.Author);
         Assert.Equal("Pride and Prejudice", result.Title);
@@ -27,7 +31,9 @@ public sealed class LocalMediaMetadataServiceTests
     [Fact]
     public void Parser_UsesExplicitAuthorTitleSeparator()
     {
-        var result = MetadataFilenameParser.Parse(@"C:\Audio\Stephen King - It.mp3");
+        var path = Path.Combine(Path.GetTempPath(), "Audio", "Stephen King - It.mp3");
+
+        var result = MetadataFilenameParser.Parse(path);
 
         Assert.Equal("Stephen King", result.Author);
         Assert.Equal("It", result.Title);
