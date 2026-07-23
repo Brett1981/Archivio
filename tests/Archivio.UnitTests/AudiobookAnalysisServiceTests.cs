@@ -69,6 +69,39 @@ public sealed class AudiobookAnalysisServiceTests
         Assert.Equal([first.Id, second.Id], group.Parts.Select(part => part.MediaItem.Id));
     }
 
+    [Fact]
+    public void Analyse_ExposesReviewPresentationForHighConfidenceCandidate()
+    {
+        var sourceId = Guid.NewGuid();
+        var item = CreateItem(sourceId, "Jane Austen/Pride and Prejudice/Jane Austen - Pride and Prejudice.m4b");
+        var service = new AudiobookAnalysisService();
+
+        var group = Assert.Single(service.Analyse([item]));
+
+        Assert.False(group.NeedsReview);
+        Assert.Equal("High confidence", group.ReviewLabel);
+        Assert.Equal("Single file", group.TypeLabel);
+        Assert.Equal("Jane Austen", group.AuthorDisplay);
+        Assert.Equal(4, group.ConfidenceReasons.Count);
+    }
+
+    [Fact]
+    public void Analyse_ExposesReviewPresentationForAmbiguousMultipartCandidate()
+    {
+        var sourceId = Guid.NewGuid();
+        var first = CreateItem(sourceId, "Book/a.mp3");
+        var second = CreateItem(sourceId, "Book/b.mp3");
+        var service = new AudiobookAnalysisService();
+
+        var group = Assert.Single(service.Analyse([first, second]));
+
+        Assert.True(group.NeedsReview);
+        Assert.Equal("Needs review", group.ReviewLabel);
+        Assert.Equal("Multipart", group.TypeLabel);
+        Assert.Equal("Unknown author", group.AuthorDisplay);
+        Assert.All(group.Parts, part => Assert.Equal("Filename order", part.OrderingStatus));
+    }
+
     private static MediaItem CreateItem(Guid sourceId, string relativePath)
     {
         var root = Path.Combine(Path.GetTempPath(), "Archivio.Tests", Guid.NewGuid().ToString("N"));
