@@ -24,6 +24,7 @@ public static partial class MetadataFilenameParser
             hints.Add("LibriVox");
         }
 
+        name = CamelCaseBoundaryRegex().Replace(name, "$1 $2");
         name = SeparatorsRegex().Replace(name, " ");
         name = BitrateRegex().Replace(name, " ");
         name = TrackPrefixRegex().Replace(name, " ");
@@ -77,6 +78,9 @@ public static partial class MetadataFilenameParser
         var lowered = value.ToLowerInvariant();
         return CultureInfo.InvariantCulture.TextInfo.ToTitleCase(lowered);
     }
+
+    [GeneratedRegex(@"([a-z])([A-Z])", RegexOptions.CultureInvariant)]
+    private static partial Regex CamelCaseBoundaryRegex();
 
     [GeneratedRegex(@"[_\.]+", RegexOptions.CultureInvariant)]
     private static partial Regex SeparatorsRegex();
