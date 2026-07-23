@@ -1,4 +1,5 @@
 using Archivio.Application.Abstractions;
+using TagLib;
 
 namespace Archivio.Metadata;
 
