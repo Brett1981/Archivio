@@ -14,6 +14,8 @@ public sealed partial class MainWindowViewModel
 
     public int AudiobookCandidateCount => AudiobookCandidates.Count;
     public int MultipartAudiobookCount => AudiobookCandidates.Count(candidate => candidate.IsMultipart);
+    public int SingleFileAudiobookCount => AudiobookCandidates.Count(candidate => !candidate.IsMultipart);
+    public int AudiobooksNeedingReviewCount => AudiobookCandidates.Count(candidate => candidate.NeedsReview);
 
     [ObservableProperty]
     private AudiobookCandidateGroup? _selectedAudiobookCandidate;
@@ -31,8 +33,7 @@ public sealed partial class MainWindowViewModel
         }
 
         SelectedAudiobookCandidate = AudiobookCandidates.FirstOrDefault();
-        OnPropertyChanged(nameof(AudiobookCandidateCount));
-        OnPropertyChanged(nameof(MultipartAudiobookCount));
+        NotifyAudiobookSummaryChanged();
         Status = groups.Count == 0
             ? "No audiobook candidates found in the selected source"
             : $"Found {groups.Count} audiobook candidate{(groups.Count == 1 ? string.Empty : "s")}";
@@ -42,8 +43,15 @@ public sealed partial class MainWindowViewModel
     {
         AudiobookCandidates.Clear();
         SelectedAudiobookCandidate = null;
+        NotifyAudiobookSummaryChanged();
+        AnalyseAudiobooksCommand.NotifyCanExecuteChanged();
+    }
+
+    private void NotifyAudiobookSummaryChanged()
+    {
         OnPropertyChanged(nameof(AudiobookCandidateCount));
         OnPropertyChanged(nameof(MultipartAudiobookCount));
-        AnalyseAudiobooksCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(SingleFileAudiobookCount));
+        OnPropertyChanged(nameof(AudiobooksNeedingReviewCount));
     }
 }
