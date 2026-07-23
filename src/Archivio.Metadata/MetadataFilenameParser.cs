@@ -16,7 +16,8 @@ public static partial class MetadataFilenameParser
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
 
-        var name = Path.GetFileNameWithoutExtension(filePath);
+        var originalName = Path.GetFileNameWithoutExtension(filePath);
+        var name = originalName;
         var hints = new List<string>();
 
         if (name.Contains("librivox", StringComparison.OrdinalIgnoreCase))
@@ -36,7 +37,7 @@ public static partial class MetadataFilenameParser
         var cleaned = ToTitleCase(string.Join(' ', tokens));
         if (string.IsNullOrWhiteSpace(cleaned))
         {
-            cleaned = Path.GetFileNameWithoutExtension(filePath);
+            cleaned = originalName;
         }
 
         var explicitParts = AuthorTitleSeparatorRegex().Split(cleaned, 2);
@@ -50,12 +51,18 @@ public static partial class MetadataFilenameParser
 
         var parent = Directory.GetParent(filePath)?.Name;
         var grandParent = Directory.GetParent(filePath)?.Parent?.Name;
-        if (IsUsefulFolder(parent) && IsUsefulFolder(grandParent))
+        if (IsGenericTrackName(originalName) && IsUsefulFolder(parent) && IsUsefulFolder(grandParent))
         {
             return new ParsedFileMetadata(Normalize(grandParent), Normalize(parent) ?? cleaned, hints);
         }
 
         return new ParsedFileMetadata(null, Normalize(cleaned) ?? cleaned, hints);
+    }
+
+    private static bool IsGenericTrackName(string value)
+    {
+        var normalized = SeparatorsRegex().Replace(value, " ").Trim();
+        return GenericTrackNameRegex().IsMatch(normalized);
     }
 
     private static bool IsUsefulFolder(string? value) =>
@@ -90,6 +97,9 @@ public static partial class MetadataFilenameParser
 
     [GeneratedRegex(@"^\s*(?:track|part|cd|disc)?\s*\d{1,4}\s*[-_\. ]+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex TrackPrefixRegex();
+
+    [GeneratedRegex(@"^(?:track|part|cd|disc)?\s*\d{1,4}$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex GenericTrackNameRegex();
 
     [GeneratedRegex(@"\s+-\s+", RegexOptions.CultureInvariant)]
     private static partial Regex AuthorTitleSeparatorRegex();
