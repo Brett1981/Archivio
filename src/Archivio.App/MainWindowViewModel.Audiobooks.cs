@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using Archivio.Application.Abstractions;
+using Archivio.Application.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -7,6 +8,8 @@ namespace Archivio.App;
 
 public sealed partial class MainWindowViewModel
 {
+    private readonly IAudiobookAnalysisService _audiobookAnalysisService = new AudiobookAnalysisService();
+
     public ObservableCollection<AudiobookCandidateGroup> AudiobookCandidates { get; } = [];
 
     public int AudiobookCandidateCount => AudiobookCandidates.Count;
