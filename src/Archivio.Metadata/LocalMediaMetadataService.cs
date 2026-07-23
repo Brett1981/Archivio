@@ -12,7 +12,7 @@ public sealed class LocalMediaMetadataService : ILocalMediaMetadataService
         var parsed = MetadataFilenameParser.Parse(filePath);
         var warnings = new List<string>();
 
-        if (!File.Exists(filePath))
+        if (!System.IO.File.Exists(filePath))
         {
             warnings.Add("The media file does not exist or is not currently accessible.");
             return BuildFallback(filePath, parsed, warnings);
