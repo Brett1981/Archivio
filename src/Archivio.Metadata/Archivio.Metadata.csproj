@@ -4,6 +4,6 @@
     <ProjectReference Include="../Archivio.Domain/Archivio.Domain.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="TagLibSharp" />
+    <PackageReference Include="TagLibSharp" Version="2.3.0" />
   </ItemGroup>
 </Project>

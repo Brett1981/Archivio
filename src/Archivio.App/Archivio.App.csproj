@@ -5,6 +5,8 @@
     <UseWPF>true</UseWPF>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ApplicationIcon></ApplicationIcon>
+    <!-- Temporarily disable app host generation to avoid file lock issues during build -->
+    <UseAppHost>false</UseAppHost>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Archivio.Application/Archivio.Application.csproj" />
@@ -15,11 +17,11 @@
     <ProjectReference Include="../Archivio.Workers/Archivio.Workers.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="CommunityToolkit.Mvvm" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" />
-    <PackageReference Include="Serilog.Extensions.Hosting" />
-    <PackageReference Include="Serilog.Settings.Configuration" />
-    <PackageReference Include="Serilog.Sinks.File" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.9" />
+    <PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0" />
+    <PackageReference Include="Serilog.Settings.Configuration" Version="10.0.1" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
   </ItemGroup>
   <ItemGroup>
     <None Update="appsettings.json">
