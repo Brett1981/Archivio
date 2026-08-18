@@ -147,7 +147,7 @@
                     <DockPanel>
                         <StackPanel>
                             <TextBlock Text="Audiobook review" Foreground="White" FontSize="19" FontWeight="SemiBold" />
-                            <TextBlock Text="Read-only analysis" Foreground="#64748B" FontSize="11" Margin="0,3,0,0" />
+                            <TextBlock Text="Read-only local metadata analysis" Foreground="#64748B" FontSize="11" Margin="0,3,0,0" />
                         </StackPanel>
                         <Button DockPanel.Dock="Right" Content="Analyse" Command="{Binding AnalyseAudiobooksCommand}" Padding="13,7" VerticalAlignment="Center" />
                     </DockPanel>
@@ -168,6 +168,7 @@
                                             <TextBlock Text="{Binding AuthorDisplay}" Foreground="#94A3B8" FontSize="11" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{Binding Title}" Foreground="White" FontWeight="SemiBold" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{Binding TypeLabel}" Foreground="#64748B" FontSize="11" Margin="0,3,0,0" />
+                                            <TextBlock Text="{Binding MetadataProvenanceSummary}" Foreground="#64748B" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="1" Margin="10,0,0,0">
                                             <TextBlock Text="{Binding Confidence, StringFormat={}{0:P0}}" Foreground="{StaticResource ArchivioAccent}" HorizontalAlignment="Right" />
@@ -189,6 +190,7 @@
                                 <TextBlock Text="{Binding AuthorDisplay, TargetNullValue=Select a candidate}" Foreground="#94A3B8" Margin="0,9,0,0" />
                                 <TextBlock Text="{Binding Title}" Foreground="White" FontSize="16" FontWeight="SemiBold" Margin="0,3,0,0" TextWrapping="Wrap" />
                                 <TextBlock Foreground="#CBD5E1" Margin="0,7,0,0"><Run Text="{Binding TypeLabel, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding Confidence, Mode=OneWay, StringFormat={}{0:P0}}" /></TextBlock>
+                                <TextBlock Text="{Binding MetadataProvenanceSummary}" Foreground="{StaticResource ArchivioAccent}" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap" />
                                 <TextBlock Text="Confidence explanation" Foreground="White" FontWeight="SemiBold" Margin="0,13,0,6" />
                                 <ItemsControl ItemsSource="{Binding ConfidenceReasons}"><ItemsControl.ItemTemplate><DataTemplate>
                                     <TextBlock Text="{Binding StringFormat=• {0}}" Foreground="#CBD5E1" TextWrapping="Wrap" Margin="0,0,0,4" />
@@ -199,11 +201,37 @@
                                 </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
                                 <TextBlock Text="Ordered files" Foreground="White" FontWeight="SemiBold" Margin="0,12,0,6" />
                                 <ItemsControl ItemsSource="{Binding Parts}"><ItemsControl.ItemTemplate><DataTemplate>
-                                    <Border Background="#111C31" CornerRadius="4" Padding="7" Margin="0,0,0,5">
+                                    <Border Background="#111C31" CornerRadius="4" Padding="8" Margin="0,0,0,7">
                                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="26" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                             <TextBlock Text="{Binding Sequence}" Foreground="{StaticResource ArchivioAccent}" FontWeight="SemiBold" />
-                                            <StackPanel Grid.Column="1"><TextBlock Text="{Binding MediaItem.FileName}" Foreground="White" TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Text="{Binding OrderingStatus}" Foreground="#64748B" FontSize="10" Margin="0,2,0,0" /></StackPanel>
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="{Binding MediaItem.FileName}" Foreground="White" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Foreground="#CBD5E1" Margin="0,4,0,0" TextWrapping="Wrap">
+                                                    <Run Text="{Binding Metadata.TitleDisplay, Mode=OneWay}" /><Run Text="  ·  " />
+                                                    <Run Text="{Binding Metadata.Title.SourceDisplay, Mode=OneWay}" />
+                                                </TextBlock>
+                                                <TextBlock Foreground="#94A3B8" Margin="0,2,0,0" TextWrapping="Wrap">
+                                                    <Run Text="{Binding Metadata.AuthorDisplay, Mode=OneWay}" /><Run Text="  ·  " />
+                                                    <Run Text="{Binding Metadata.Author.SourceDisplay, Mode=OneWay}" />
+                                                </TextBlock>
+                                                <TextBlock Foreground="#64748B" FontSize="10" Margin="0,4,0,0" TextWrapping="Wrap">
+                                                    <Run Text="Album: " /><Run Text="{Binding Metadata.AlbumDisplay, Mode=OneWay}" /><Run Text=" (" /><Run Text="{Binding Metadata.Album.SourceDisplay, Mode=OneWay}" /><Run Text=")" />
+                                                </TextBlock>
+                                                <TextBlock Foreground="#64748B" FontSize="10" Margin="0,2,0,0" TextWrapping="Wrap">
+                                                    <Run Text="Genre: " /><Run Text="{Binding Metadata.GenreDisplay, Mode=OneWay}" /><Run Text=" (" /><Run Text="{Binding Metadata.Genre.SourceDisplay, Mode=OneWay}" /><Run Text=")" />
+                                                </TextBlock>
+                                                <TextBlock Foreground="#64748B" FontSize="10" Margin="0,2,0,0" TextWrapping="Wrap">
+                                                    <Run Text="{Binding Metadata.DurationDisplay, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding Metadata.ReleaseDetailsDisplay, Mode=OneWay}" />
+                                                </TextBlock>
+                                                <TextBlock Text="{Binding Metadata.TechnicalSummary}" Foreground="#64748B" FontSize="10" Margin="0,2,0,0" TextWrapping="Wrap" />
+                                                <TextBlock Foreground="#64748B" FontSize="10" Margin="0,2,0,0" TextWrapping="Wrap">
+                                                    <Run Text="{Binding Metadata.ArtworkDisplay, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding Metadata.SourceHintsDisplay, Mode=OneWay}" />
+                                                </TextBlock>
+                                                <TextBlock Text="{Binding OrderingStatus}" Foreground="{StaticResource ArchivioAccent}" FontSize="10" Margin="0,3,0,0" />
+                                                <ItemsControl ItemsSource="{Binding Metadata.Warnings}"><ItemsControl.ItemTemplate><DataTemplate>
+                                                    <TextBlock Text="{Binding StringFormat=⚠ {0}}" Foreground="#F59E0B" FontSize="10" TextWrapping="Wrap" Margin="0,2,0,0" />
+                                                </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                                            </StackPanel>
                                         </Grid>
                                     </Border>
                                 </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>

@@ -1,9 +1,15 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using Archivio.Application.Abstractions;
 
 namespace Archivio.Metadata;
 
-public sealed record ParsedFileMetadata(string? Author, string Title, IReadOnlyList<string> SourceHints);
+public sealed record ParsedFileMetadata(
+    string? Author,
+    string Title,
+    MetadataValueSource AuthorSource,
+    MetadataValueSource TitleSource,
+    IReadOnlyList<string> SourceHints);
 
 public static partial class MetadataFilenameParser
 {
@@ -46,6 +52,8 @@ public static partial class MetadataFilenameParser
             return new ParsedFileMetadata(
                 Normalize(explicitParts[0]),
                 Normalize(explicitParts[1]) ?? cleaned,
+                MetadataValueSource.FileName,
+                MetadataValueSource.FileName,
                 hints);
         }
 
@@ -53,10 +61,20 @@ public static partial class MetadataFilenameParser
         var grandParent = Directory.GetParent(filePath)?.Parent?.Name;
         if (IsGenericTrackName(originalName) && IsUsefulFolder(parent) && IsUsefulFolder(grandParent))
         {
-            return new ParsedFileMetadata(Normalize(grandParent), Normalize(parent) ?? cleaned, hints);
+            return new ParsedFileMetadata(
+                Normalize(grandParent),
+                Normalize(parent) ?? cleaned,
+                MetadataValueSource.FolderStructure,
+                MetadataValueSource.FolderStructure,
+                hints);
         }
 
-        return new ParsedFileMetadata(null, Normalize(cleaned) ?? cleaned, hints);
+        return new ParsedFileMetadata(
+            null,
+            Normalize(cleaned) ?? cleaned,
+            MetadataValueSource.None,
+            MetadataValueSource.FileName,
+            hints);
     }
 
     private static bool IsGenericTrackName(string value)

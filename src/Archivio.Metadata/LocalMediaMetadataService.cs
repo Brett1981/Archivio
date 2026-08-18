@@ -28,10 +28,10 @@ public sealed class LocalMediaMetadataService : ILocalMediaMetadataService
             var embeddedAuthor = First(tag.FirstPerformer, tag.FirstAlbumArtist, tag.FirstComposer);
             var title = !string.IsNullOrWhiteSpace(embeddedTitle)
                 ? new MetadataValue(embeddedTitle.Trim(), MetadataValueSource.EmbeddedTag)
-                : new MetadataValue(parsed.Title, MetadataValueSource.FileName);
+                : new MetadataValue(parsed.Title, parsed.TitleSource);
             var author = !string.IsNullOrWhiteSpace(embeddedAuthor)
                 ? new MetadataValue(embeddedAuthor.Trim(), MetadataValueSource.EmbeddedTag)
-                : new MetadataValue(parsed.Author, parsed.Author is null ? MetadataValueSource.None : MetadataValueSource.FolderStructure);
+                : new MetadataValue(parsed.Author, parsed.AuthorSource);
 
             var codec = properties.Codecs
                 .Select(candidate => candidate.Description)
@@ -67,8 +67,8 @@ public sealed class LocalMediaMetadataService : ILocalMediaMetadataService
         IReadOnlyList<string> warnings) =>
         new(
             filePath,
-            new MetadataValue(parsed.Title, MetadataValueSource.FileName),
-            new MetadataValue(parsed.Author, parsed.Author is null ? MetadataValueSource.None : MetadataValueSource.FolderStructure),
+            new MetadataValue(parsed.Title, parsed.TitleSource),
+            new MetadataValue(parsed.Author, parsed.AuthorSource),
             new MetadataValue(null, MetadataValueSource.None),
             new MetadataValue(null, MetadataValueSource.None),
             null,

@@ -1,3 +1,4 @@
+using Archivio.Application.Abstractions;
 using Archivio.Application.Services;
 using Archivio.Domain;
 
@@ -13,7 +14,8 @@ public sealed class AudiobookAnalysisServiceTests
         var image = CreateItem(sourceId, "Author/Book/cover.jpg");
         var missing = CreateItem(sourceId, "Author/Other/Author - Other.m4b");
         missing.MarkMissing(DateTime.UtcNow);
-        var service = new AudiobookAnalysisService();
+        var metadataService = new StubLocalMediaMetadataService();
+        var service = new AudiobookAnalysisService(metadataService);
 
         var result = service.Analyse([audio, image, missing]);
 
@@ -21,6 +23,7 @@ public sealed class AudiobookAnalysisServiceTests
         Assert.Equal("Author", group.Author);
         Assert.Equal("Book", group.Title);
         Assert.Same(audio, Assert.Single(group.Parts).MediaItem);
+        Assert.Equal([audio.FullPath], metadataService.ReadPaths);
     }
 
     [Fact]
@@ -29,7 +32,7 @@ public sealed class AudiobookAnalysisServiceTests
         var sourceId = Guid.NewGuid();
         var partTwo = CreateItem(sourceId, "Author/Book/Author - Book Part 2.mp3");
         var partOne = CreateItem(sourceId, "Author/Book/Author - Book Part 1.mp3");
-        var service = new AudiobookAnalysisService();
+        var service = CreateService();
 
         var result = service.Analyse([partTwo, partOne]);
 
@@ -45,7 +48,7 @@ public sealed class AudiobookAnalysisServiceTests
     {
         var sourceId = Guid.NewGuid();
         var item = CreateItem(sourceId, "Jane Austen/Pride and Prejudice/track01.m4b");
-        var service = new AudiobookAnalysisService();
+        var service = CreateService();
 
         var group = Assert.Single(service.Analyse([item]));
 
@@ -60,7 +63,7 @@ public sealed class AudiobookAnalysisServiceTests
         var sourceId = Guid.NewGuid();
         var first = CreateItem(sourceId, "Author/Book/a.mp3");
         var second = CreateItem(sourceId, "Author/Book/b.mp3");
-        var service = new AudiobookAnalysisService();
+        var service = CreateService();
 
         var group = Assert.Single(service.Analyse([second, first]));
 
@@ -74,7 +77,7 @@ public sealed class AudiobookAnalysisServiceTests
     {
         var sourceId = Guid.NewGuid();
         var item = CreateItem(sourceId, "Jane Austen/Pride and Prejudice/Jane Austen - Pride and Prejudice.m4b");
-        var service = new AudiobookAnalysisService();
+        var service = CreateService();
 
         var group = Assert.Single(service.Analyse([item]));
 
@@ -91,7 +94,7 @@ public sealed class AudiobookAnalysisServiceTests
         var sourceId = Guid.NewGuid();
         var first = CreateItem(sourceId, "Book/a.mp3");
         var second = CreateItem(sourceId, "Book/b.mp3");
-        var service = new AudiobookAnalysisService();
+        var service = CreateService();
 
         var group = Assert.Single(service.Analyse([first, second]));
 
@@ -102,10 +105,122 @@ public sealed class AudiobookAnalysisServiceTests
         Assert.All(group.Parts, part => Assert.Equal("Filename order", part.OrderingStatus));
     }
 
+    [Fact]
+    public void Analyse_UsesLocalMetadataAndPreservesFieldProvenance()
+    {
+        var sourceId = Guid.NewGuid();
+        var item = CreateItem(sourceId, "Unknown/Folder/track01.m4b");
+        var metadataService = new StubLocalMediaMetadataService(path => CreateMetadata(
+            path,
+            new MetadataValue("Pride and Prejudice", MetadataValueSource.EmbeddedTag),
+            new MetadataValue("Jane Austen", MetadataValueSource.EmbeddedTag)));
+
+        var group = Assert.Single(new AudiobookAnalysisService(metadataService).Analyse([item]));
+
+        Assert.Equal("Jane Austen", group.Author);
+        Assert.Equal("Pride and Prejudice", group.Title);
+        Assert.Equal(MetadataValueSource.EmbeddedTag, group.AuthorSource);
+        Assert.Equal(MetadataValueSource.EmbeddedTag, group.TitleSource);
+        Assert.Equal("Title: Embedded tag · Author: Embedded tag", group.MetadataProvenanceSummary);
+        var part = Assert.Single(group.Parts);
+        Assert.Equal("Pride and Prejudice", part.Metadata.TitleDisplay);
+        Assert.Equal(item.FullPath, Assert.Single(metadataService.ReadPaths));
+    }
+
+    [Fact]
+    public void Analyse_SurfacesLocalMetadataWarningsWithoutWritingMedia()
+    {
+        var sourceId = Guid.NewGuid();
+        var item = CreateItem(sourceId, "Author/Book/Author - Book.m4b");
+        var metadataService = new StubLocalMediaMetadataService(path => CreateMetadata(
+            path,
+            warnings: ["Metadata could not be read."]));
+
+        var group = Assert.Single(new AudiobookAnalysisService(metadataService).Analyse([item]));
+
+        Assert.True(group.NeedsReview);
+        Assert.Contains($"{item.FileName}: Metadata could not be read.", group.Warnings);
+        Assert.Equal([item.FullPath], metadataService.ReadPaths);
+    }
+
+    [Fact]
+    public void Analyse_IgnoresExpectedPerPartFilenameTitleDifferences()
+    {
+        var sourceId = Guid.NewGuid();
+        var partOne = CreateItem(sourceId, "Author/Book/Author - Book Part 1.mp3");
+        var partTwo = CreateItem(sourceId, "Author/Book/Author - Book Part 2.mp3");
+        var metadataService = new StubLocalMediaMetadataService(path => CreateMetadata(
+            path,
+            new MetadataValue(Path.GetFileNameWithoutExtension(path), MetadataValueSource.FileName),
+            new MetadataValue("Author", MetadataValueSource.FileName)));
+
+        var group = Assert.Single(new AudiobookAnalysisService(metadataService).Analyse([partOne, partTwo]));
+
+        Assert.Equal("Book", group.Title);
+        Assert.Equal(MetadataValueSource.Inferred, group.TitleSource);
+        Assert.Empty(group.Warnings);
+    }
+
+    [Fact]
+    public void Analyse_WarnsWhenEmbeddedTitlesConflictAcrossMultipartFiles()
+    {
+        var sourceId = Guid.NewGuid();
+        var partOne = CreateItem(sourceId, "Author/Book/Author - Book Part 1.mp3");
+        var partTwo = CreateItem(sourceId, "Author/Book/Author - Book Part 2.mp3");
+        var metadataService = new StubLocalMediaMetadataService(path => CreateMetadata(
+            path,
+            new MetadataValue(
+                path == partOne.FullPath ? "Opening" : "Conclusion",
+                MetadataValueSource.EmbeddedTag),
+            new MetadataValue("Author", MetadataValueSource.EmbeddedTag)));
+
+        var group = Assert.Single(new AudiobookAnalysisService(metadataService).Analyse([partOne, partTwo]));
+
+        Assert.Equal("Book", group.Title);
+        Assert.Contains("Title metadata differs across files; the inferred candidate value is shown.", group.Warnings);
+        Assert.True(group.NeedsReview);
+    }
+
+    private static AudiobookAnalysisService CreateService() => new(new StubLocalMediaMetadataService());
+
+    private static LocalMediaMetadata CreateMetadata(
+        string path,
+        MetadataValue? title = null,
+        MetadataValue? author = null,
+        IReadOnlyList<string>? warnings = null) =>
+        new(
+            path,
+            title ?? new MetadataValue(null, MetadataValueSource.None),
+            author ?? new MetadataValue(null, MetadataValueSource.None),
+            new MetadataValue(null, MetadataValueSource.None),
+            new MetadataValue(null, MetadataValueSource.None),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            false,
+            [],
+            warnings ?? []);
+
     private static MediaItem CreateItem(Guid sourceId, string relativePath)
     {
         var root = Path.Combine(Path.GetTempPath(), "Archivio.Tests", Guid.NewGuid().ToString("N"));
         var now = DateTime.UtcNow;
         return new MediaItem(sourceId, Path.Combine(root, relativePath), relativePath, 1024, now, now, now);
+    }
+
+    private sealed class StubLocalMediaMetadataService(
+        Func<string, LocalMediaMetadata>? reader = null) : ILocalMediaMetadataService
+    {
+        public List<string> ReadPaths { get; } = [];
+
+        public LocalMediaMetadata Read(string filePath)
+        {
+            ReadPaths.Add(filePath);
+            return reader?.Invoke(filePath) ?? CreateMetadata(filePath);
+        }
     }
 }

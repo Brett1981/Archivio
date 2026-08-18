@@ -6,6 +6,8 @@ public sealed record AudiobookCandidateGroup(
     string DisplayName,
     string? Author,
     string Title,
+    MetadataValueSource AuthorSource,
+    MetadataValueSource TitleSource,
     IReadOnlyList<AudiobookCandidatePart> Parts,
     decimal Confidence,
     IReadOnlyList<string> Warnings)
@@ -15,6 +17,9 @@ public sealed record AudiobookCandidateGroup(
     public string TypeLabel => IsMultipart ? "Multipart" : "Single file";
     public string ReviewLabel => NeedsReview ? "Needs review" : "High confidence";
     public string AuthorDisplay => string.IsNullOrWhiteSpace(Author) ? "Unknown author" : Author;
+    public string AuthorSourceDisplay => new MetadataValue(Author, AuthorSource).SourceDisplay;
+    public string TitleSourceDisplay => new MetadataValue(Title, TitleSource).SourceDisplay;
+    public string MetadataProvenanceSummary => $"Title: {TitleSourceDisplay} · Author: {AuthorSourceDisplay}";
 
     public IReadOnlyList<string> ConfidenceReasons
     {
@@ -23,10 +28,10 @@ public sealed record AudiobookCandidateGroup(
             var reasons = new List<string>();
             reasons.Add(string.IsNullOrWhiteSpace(Author)
                 ? "Author could not be inferred."
-                : "Author inferred from filename or folder structure.");
+                : $"Author came from {AuthorSourceDisplay.ToLowerInvariant()}.");
             reasons.Add(string.IsNullOrWhiteSpace(Title)
                 ? "Title could not be inferred."
-                : "Title inferred from filename or folder structure.");
+                : $"Title came from {TitleSourceDisplay.ToLowerInvariant()}.");
             reasons.Add(IsMultipart
                 ? Parts.All(part => part.SequenceWasInferred)
                     ? "All multipart sequence numbers were inferred."
@@ -40,7 +45,11 @@ public sealed record AudiobookCandidateGroup(
     }
 }
 
-public sealed record AudiobookCandidatePart(MediaItem MediaItem, int Sequence, bool SequenceWasInferred)
+public sealed record AudiobookCandidatePart(
+    MediaItem MediaItem,
+    int Sequence,
+    bool SequenceWasInferred,
+    LocalMediaMetadata Metadata)
 {
     public string OrderingStatus => SequenceWasInferred ? "Detected" : "Filename order";
 }

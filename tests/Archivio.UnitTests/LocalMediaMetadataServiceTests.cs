@@ -26,6 +26,8 @@ public sealed class LocalMediaMetadataServiceTests
 
         Assert.Equal("Jane Austen", result.Author);
         Assert.Equal("Pride and Prejudice", result.Title);
+        Assert.Equal(MetadataValueSource.FolderStructure, result.AuthorSource);
+        Assert.Equal(MetadataValueSource.FolderStructure, result.TitleSource);
     }
 
     [Fact]
@@ -37,6 +39,8 @@ public sealed class LocalMediaMetadataServiceTests
 
         Assert.Equal("Stephen King", result.Author);
         Assert.Equal("It", result.Title);
+        Assert.Equal(MetadataValueSource.FileName, result.AuthorSource);
+        Assert.Equal(MetadataValueSource.FileName, result.TitleSource);
     }
 
     [Fact]
@@ -53,5 +57,34 @@ public sealed class LocalMediaMetadataServiceTests
         Assert.Contains("LibriVox", result.SourceHints);
         Assert.Single(result.Warnings);
         Assert.False(result.HasEmbeddedArtwork);
+    }
+
+    [Fact]
+    public void MetadataPresentation_FormatsValuesAndProvenanceForReview()
+    {
+        var metadata = new LocalMediaMetadata(
+            "book.m4b",
+            new MetadataValue("Book", MetadataValueSource.EmbeddedTag),
+            new MetadataValue("Author", MetadataValueSource.FolderStructure),
+            new MetadataValue("Collection", MetadataValueSource.EmbeddedTag),
+            new MetadataValue("Audiobook", MetadataValueSource.EmbeddedTag),
+            2026,
+            3,
+            TimeSpan.FromMinutes(62) + TimeSpan.FromSeconds(5),
+            128,
+            44_100,
+            2,
+            "AAC",
+            true,
+            ["LibriVox"],
+            []);
+
+        Assert.Equal("Embedded tag", metadata.Title.SourceDisplay);
+        Assert.Equal("Folder structure", metadata.Author.SourceDisplay);
+        Assert.Equal("1:02:05", metadata.DurationDisplay);
+        Assert.Equal("Year 2026 · Track 3", metadata.ReleaseDetailsDisplay);
+        Assert.Equal("AAC · 128 kbps · 44,100 Hz · 2 channels", metadata.TechnicalSummary);
+        Assert.Equal("Embedded artwork", metadata.ArtworkDisplay);
+        Assert.Equal("LibriVox", metadata.SourceHintsDisplay);
     }
 }

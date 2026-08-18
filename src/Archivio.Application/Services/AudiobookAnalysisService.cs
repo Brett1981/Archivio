@@ -7,6 +7,14 @@ namespace Archivio.Application.Services;
 
 public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
 {
+    private readonly ILocalMediaMetadataService _localMediaMetadataService;
+
+    public AudiobookAnalysisService(ILocalMediaMetadataService localMediaMetadataService)
+    {
+        _localMediaMetadataService = localMediaMetadataService ??
+            throw new ArgumentNullException(nameof(localMediaMetadataService));
+    }
+
     private static readonly HashSet<string> AudioExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".m4b", ".m4a", ".mp3", ".aac", ".flac", ".ogg", ".opus", ".wav", ".wma"
@@ -28,8 +36,9 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
         return candidates;
     }
 
-    private static ParsedCandidate Parse(MediaItem item)
+    private ParsedCandidate Parse(MediaItem item)
     {
+        var metadata = _localMediaMetadataService.Read(item.FullPath);
         var stem = Path.GetFileNameWithoutExtension(item.FileName).Trim();
         var partMatch = PartNumberRegex().Match(stem);
         var sequence = partMatch.Success && int.TryParse(partMatch.Groups[1].Value, CultureInfo.InvariantCulture, out var parsed)
@@ -45,7 +54,7 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
         var normalizedTitle = NormalizeKey(title);
         var groupKey = $"{NormalizeKey(parentPath)}|{normalizedTitle}";
 
-        return new ParsedCandidate(item, groupKey, author, title, sequence, partMatch.Success);
+        return new ParsedCandidate(item, groupKey, author, title, sequence, partMatch.Success, metadata);
     }
 
     private static (string? Author, string Title) ParseAuthorAndTitle(string cleanedStem, string relativePath)
@@ -96,19 +105,90 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
             warnings.Add($"Duplicate part numbers detected: {string.Join(", ", duplicateSequences)}.");
         }
 
-        var confidence = CalculateConfidence(first.Author, first.Title, ordered, warnings);
+        foreach (var candidate in ordered)
+        {
+            warnings.AddRange(candidate.Metadata.Warnings.Select(warning => $"{candidate.Item.FileName}: {warning}"));
+        }
+
+        var fallbackAuthor = new MetadataValue(
+            first.Author,
+            string.IsNullOrWhiteSpace(first.Author) ? MetadataValueSource.None : MetadataValueSource.Inferred);
+        var fallbackTitle = new MetadataValue(first.Title, MetadataValueSource.Inferred);
+        var authorMetadata = SelectGroupMetadataValue(
+            ordered.Select(candidate => candidate.Metadata.Author), fallbackAuthor, "Author", warnings);
+        var titleMetadata = SelectGroupMetadataValue(
+            ordered.Select(candidate => candidate.Metadata.Title), fallbackTitle, "Title", warnings);
+        var author = authorMetadata.Value;
+        var title = titleMetadata.Value ?? first.Title;
+
+        var confidence = CalculateConfidence(author, title, ordered, warnings);
         var parts = ordered
             .Select((candidate, index) => new AudiobookCandidatePart(
                 candidate.Item,
                 candidate.Sequence > 0 ? candidate.Sequence : index + 1,
-                candidate.SequenceWasInferred))
+                candidate.SequenceWasInferred,
+                candidate.Metadata))
             .ToList();
-        var displayName = string.IsNullOrWhiteSpace(first.Author)
-            ? first.Title
-            : $"{first.Author} - {first.Title}";
+        var displayName = string.IsNullOrWhiteSpace(author)
+            ? title
+            : $"{author} - {title}";
 
-        return new AudiobookCandidateGroup(displayName, first.Author, first.Title, parts, confidence, warnings);
+        return new AudiobookCandidateGroup(
+            displayName,
+            author,
+            title,
+            authorMetadata.Source,
+            titleMetadata.Source,
+            parts,
+            confidence,
+            warnings);
     }
+
+    private static MetadataValue SelectGroupMetadataValue(
+        IEnumerable<MetadataValue> values,
+        MetadataValue fallback,
+        string fieldName,
+        ICollection<string> warnings)
+    {
+        var availableValues = values
+            .Where(value => value.HasValue)
+            .ToList();
+
+        if (availableValues.Count == 0)
+        {
+            return fallback;
+        }
+
+        var bestPriority = availableValues.Min(value => GetSourcePriority(value.Source));
+        var preferredValues = availableValues
+            .Where(value => GetSourcePriority(value.Source) == bestPriority)
+            .ToList();
+        var distinctValues = preferredValues
+            .GroupBy(value => value.Value!.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (distinctValues.Count == 1)
+        {
+            var preferred = distinctValues[0].First();
+            return preferred with { Value = preferred.Value!.Trim() };
+        }
+
+        if (preferredValues[0].Source is MetadataValueSource.EmbeddedTag or MetadataValueSource.FolderStructure)
+        {
+            warnings.Add($"{fieldName} metadata differs across files; the inferred candidate value is shown.");
+        }
+
+        return fallback;
+    }
+
+    private static int GetSourcePriority(MetadataValueSource source) => source switch
+    {
+        MetadataValueSource.EmbeddedTag => 0,
+        MetadataValueSource.FolderStructure => 1,
+        MetadataValueSource.FileName => 2,
+        MetadataValueSource.Inferred => 3,
+        _ => 4
+    };
 
     private static decimal CalculateConfidence(
         string? author,
@@ -145,5 +225,6 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
         string? Author,
         string Title,
         int Sequence,
-        bool SequenceWasInferred);
+        bool SequenceWasInferred,
+        LocalMediaMetadata Metadata);
 }

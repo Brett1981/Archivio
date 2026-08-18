@@ -21,12 +21,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ILibrarySourceService librarySourceService,
         IFolderPickerService folderPickerService,
         IBackgroundScanService backgroundScanService,
-        IMediaCatalogueService mediaCatalogueService)
+        IMediaCatalogueService mediaCatalogueService,
+        IAudiobookAnalysisService audiobookAnalysisService)
     {
         _librarySourceService = librarySourceService;
         _folderPickerService = folderPickerService;
         _backgroundScanService = backgroundScanService;
         _mediaCatalogueService = mediaCatalogueService;
+        _audiobookAnalysisService = audiobookAnalysisService;
         _backgroundScanService.ProgressChanged += HandleScanProgress;
         _backgroundScanService.ScanCompleted += HandleScanCompleted;
         _backgroundScanService.ScanFailed += HandleScanFailed;
