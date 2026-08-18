@@ -19,6 +19,8 @@ public static class DependencyInjection
         services.AddScoped<ILibraryScanService, LibraryScanService>();
         services.AddScoped<IMediaCatalogueService, MediaCatalogueService>();
         services.AddSingleton<IAudiobookAnalysisService, AudiobookAnalysisService>();
+        services.AddSingleton<IBookMetadataProvider, OpenLibraryMetadataProvider>();
+        services.AddSingleton<IOnlineMetadataLookupService, OnlineMetadataLookupService>();
 
         return services;
     }

@@ -22,13 +22,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
         IFolderPickerService folderPickerService,
         IBackgroundScanService backgroundScanService,
         IMediaCatalogueService mediaCatalogueService,
-        IAudiobookAnalysisService audiobookAnalysisService)
+        IAudiobookAnalysisService audiobookAnalysisService,
+        IOnlineMetadataLookupService onlineMetadataLookupService)
     {
         _librarySourceService = librarySourceService;
         _folderPickerService = folderPickerService;
         _backgroundScanService = backgroundScanService;
         _mediaCatalogueService = mediaCatalogueService;
         _audiobookAnalysisService = audiobookAnalysisService;
+        _onlineMetadataLookupService = onlineMetadataLookupService;
         _backgroundScanService.ProgressChanged += HandleScanProgress;
         _backgroundScanService.ScanCompleted += HandleScanCompleted;
         _backgroundScanService.ScanFailed += HandleScanFailed;
@@ -221,6 +223,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         }
 
+        ResetAudiobookAnalysis();
         ResetScanProgress();
         IsScanRunning = await _backgroundScanService.QueueScanAsync(SelectedSource.Id);
         Status = IsScanRunning ? $"Scanning {SelectedSource.Name}" : "A scan is already running";
@@ -287,6 +290,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 OnPropertyChanged(nameof(MediaItemCount));
                 OnPropertyChanged(nameof(MissingMediaItemCount));
             });
+
+            await LoadSavedAudiobookAnalysisAsync(librarySourceId, items);
         }
         catch (Exception exception)
         {

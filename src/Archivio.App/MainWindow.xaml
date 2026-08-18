@@ -165,10 +165,11 @@
                         </StackPanel>
                     </DockPanel>
                     <WrapPanel Grid.Row="2">
-                        <TextBlock Foreground="#CBD5E1" Margin="0,0,14,0"><Run Text="{Binding AudiobookCandidateCount, Mode=OneWay}" /><Run Text=" candidates" /></TextBlock>
+                        <TextBlock Foreground="#CBD5E1" Margin="0,0,14,0"><Run Text="{Binding VisibleAudiobookCandidateCount, Mode=OneWay}" /><Run Text=" / " /><Run Text="{Binding AudiobookCandidateCount, Mode=OneWay}" /><Run Text=" candidates" /></TextBlock>
                         <TextBlock Foreground="#CBD5E1" Margin="0,0,14,0"><Run Text="{Binding MultipartAudiobookCount, Mode=OneWay}" /><Run Text=" multipart" /></TextBlock>
                         <TextBlock Foreground="#CBD5E1" Margin="0,0,14,0"><Run Text="{Binding SingleFileAudiobookCount, Mode=OneWay}" /><Run Text=" single" /></TextBlock>
-                        <TextBlock Foreground="#F59E0B"><Run Text="{Binding AudiobooksNeedingReviewCount, Mode=OneWay}" /><Run Text=" need review" /></TextBlock>
+                        <TextBlock Foreground="#F59E0B" Margin="0,0,14,0"><Run Text="{Binding AudiobooksNeedingReviewCount, Mode=OneWay}" /><Run Text=" need review" /></TextBlock>
+                        <TextBlock Foreground="#34D399"><Run Text="{Binding OnlineSuggestionCount, Mode=OneWay}" /><Run Text=" online suggestions" /></TextBlock>
                     </WrapPanel>
                     <StackPanel Grid.Row="4">
                         <DockPanel>
@@ -179,8 +180,17 @@
                         </DockPanel>
                         <ProgressBar Minimum="0" Maximum="{Binding AudiobookAnalysisProgressMaximum}" Value="{Binding AudiobookAnalysisProcessedCount}" Height="6" Margin="0,5,0,0" />
                         <TextBlock Text="{Binding AudiobookAnalysisCurrentPath}" Foreground="#64748B" FontSize="10" Margin="0,4,0,0" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding AudiobookAnalysisStorageStatus}" Foreground="#94A3B8" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding OnlineMetadataStatus}" Foreground="#34D399" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
+                        <TextBox Text="{Binding AudiobookSearchText, UpdateSourceTrigger=PropertyChanged}" Padding="8,5" Margin="0,7,0,0" ToolTip="Search audiobook title, author, or file path" />
+                        <WrapPanel Margin="0,6,0,0">
+                            <CheckBox Content="Needs review" IsChecked="{Binding ShowAudiobooksNeedingReviewOnly}" Foreground="White" Margin="0,0,12,0" />
+                            <CheckBox Content="Metadata warnings" IsChecked="{Binding ShowAudiobookMetadataWarningsOnly}" Foreground="White" Margin="0,0,12,0" />
+                            <CheckBox Content="Multipart" IsChecked="{Binding ShowMultipartAudiobooksOnly}" Foreground="White" />
+                            <CheckBox Content="Online suggestions" IsChecked="{Binding ShowOnlineSuggestionsOnly}" Foreground="White" Margin="12,0,0,0" />
+                        </WrapPanel>
                     </StackPanel>
-                    <ListBox Grid.Row="6" ItemsSource="{Binding AudiobookCandidates}" SelectedItem="{Binding SelectedAudiobookCandidate}"
+                    <ListBox Grid.Row="6" ItemsSource="{Binding AudiobookCandidatesView}" SelectedItem="{Binding SelectedAudiobookCandidate}"
                              Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
@@ -193,6 +203,7 @@
                                             <TextBlock Text="{Binding TypeLabel}" Foreground="#64748B" FontSize="11" Margin="0,3,0,0" />
                                             <TextBlock Text="{Binding MetadataStatusLabel}" Foreground="{StaticResource ArchivioAccent}" FontSize="10" Margin="0,2,0,0" />
                                             <TextBlock Text="{Binding MetadataProvenanceSummary}" Foreground="#64748B" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding OnlineSuggestion.ProvenanceDisplay}" Foreground="#34D399" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="1" Margin="10,0,0,0">
                                             <TextBlock Text="{Binding Confidence, StringFormat={}{0:P0}}" Foreground="{StaticResource ArchivioAccent}" HorizontalAlignment="Right" />
@@ -215,6 +226,14 @@
                                 <TextBlock Text="{Binding Title}" Foreground="White" FontSize="16" FontWeight="SemiBold" Margin="0,3,0,0" TextWrapping="Wrap" />
                                 <TextBlock Foreground="#CBD5E1" Margin="0,7,0,0"><Run Text="{Binding TypeLabel, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding Confidence, Mode=OneWay, StringFormat={}{0:P0}}" /></TextBlock>
                                 <TextBlock Text="{Binding MetadataProvenanceSummary}" Foreground="{StaticResource ArchivioAccent}" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                <TextBlock Text="Online suggestion" Foreground="White" FontWeight="SemiBold" Margin="0,12,0,4" />
+                                <TextBlock Text="{Binding OnlineSuggestion.Title}" Foreground="#34D399" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding OnlineSuggestion.AuthorDisplay}" Foreground="#CBD5E1" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                <TextBlock Foreground="#94A3B8" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap">
+                                    <Run Text="{Binding OnlineSuggestion.YearDisplay, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding OnlineSuggestion.ProvenanceDisplay, Mode=OneWay}" />
+                                </TextBlock>
+                                <TextBlock Text="{Binding OnlineSuggestion.SubjectDisplay}" Foreground="#64748B" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding OnlineSuggestion.MatchReason}" Foreground="#64748B" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
                                 <TextBlock Text="Confidence explanation" Foreground="White" FontWeight="SemiBold" Margin="0,13,0,6" />
                                 <ItemsControl ItemsSource="{Binding ConfidenceReasons}"><ItemsControl.ItemTemplate><DataTemplate>
                                     <TextBlock Text="{Binding StringFormat=• {0}}" Foreground="#CBD5E1" TextWrapping="Wrap" Margin="0,0,0,4" />

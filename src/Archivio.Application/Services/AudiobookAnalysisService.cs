@@ -7,12 +7,17 @@ namespace Archivio.Application.Services;
 
 public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
 {
+    private const int CheckpointBatchSize = 50;
     private readonly ILocalMediaMetadataService _localMediaMetadataService;
+    private readonly IAudiobookAnalysisStore _analysisStore;
 
-    public AudiobookAnalysisService(ILocalMediaMetadataService localMediaMetadataService)
+    public AudiobookAnalysisService(
+        ILocalMediaMetadataService localMediaMetadataService,
+        IAudiobookAnalysisStore? analysisStore = null)
     {
         _localMediaMetadataService = localMediaMetadataService ??
             throw new ArgumentNullException(nameof(localMediaMetadataService));
+        _analysisStore = analysisStore ?? NullAudiobookAnalysisStore.Instance;
     }
 
     private static readonly HashSet<string> AudioExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -28,20 +33,106 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
         return EnrichMetadataCore(groups, null, CancellationToken.None);
     }
 
-    public Task<IReadOnlyList<AudiobookCandidateGroup>> AnalyseAsync(
+    public async Task<IReadOnlyList<AudiobookCandidateGroup>> AnalyseAsync(
         IEnumerable<MediaItem> mediaItems,
         IProgress<AudiobookAnalysisProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(mediaItems);
         var snapshot = mediaItems.ToList();
-        return Task.Run<IReadOnlyList<AudiobookCandidateGroup>>(
-            () =>
-            {
-                var groups = AnalyseCore(snapshot, progress, cancellationToken);
-                return EnrichMetadataCore(groups, progress, cancellationToken);
-            },
+        var eligibleItems = GetEligibleItems(snapshot);
+        var sourceId = GetLibrarySourceId(eligibleItems);
+        var groups = await Task.Run(
+            () => AnalyseCore(eligibleItems, progress, cancellationToken),
             cancellationToken);
+
+        if (sourceId is null)
+        {
+            return groups;
+        }
+
+        var cachedEntries = await _analysisStore.LoadMetadataCacheAsync(sourceId.Value, cancellationToken);
+        var validCache = eligibleItems
+            .Where(item => cachedEntries.TryGetValue(item.Id, out var entry) && IsCacheValid(item, entry))
+            .ToDictionary(item => item.Id, item => cachedEntries[item.Id]);
+        var reusedWarnings = validCache.Values.Count(entry => entry.Metadata.Warnings.Count > 0);
+
+        await _analysisStore.BeginAnalysisAsync(
+            sourceId.Value,
+            eligibleItems.Count,
+            validCache.Count,
+            reusedWarnings,
+            cancellationToken);
+
+        try
+        {
+            var result = await EnrichMetadataWithCheckpointsAsync(
+                sourceId.Value,
+                groups,
+                validCache,
+                progress,
+                cancellationToken);
+            var warningCount = result
+                .SelectMany(candidate => candidate.Parts)
+                .Count(part => part.Metadata.Warnings.Count > 0);
+
+            await _analysisStore.CompleteAnalysisAsync(
+                sourceId.Value,
+                result,
+                eligibleItems.Count,
+                eligibleItems.Count,
+                warningCount,
+                cancellationToken);
+            return result;
+        }
+        catch (OperationCanceledException)
+        {
+            await _analysisStore.MarkAnalysisInterruptedAsync(
+                sourceId.Value,
+                wasCancelled: true,
+                errorMessage: null,
+                CancellationToken.None);
+            throw;
+        }
+        catch (Exception exception)
+        {
+            await _analysisStore.MarkAnalysisInterruptedAsync(
+                sourceId.Value,
+                wasCancelled: false,
+                exception.Message,
+                CancellationToken.None);
+            throw;
+        }
+    }
+
+    public async Task<SavedAudiobookAnalysis?> LoadSavedAnalysisAsync(
+        IEnumerable<MediaItem> mediaItems,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mediaItems);
+        var snapshot = mediaItems.ToList();
+        var eligibleItems = GetEligibleItems(snapshot);
+        var sourceId = GetLibrarySourceId(eligibleItems);
+        if (sourceId is null)
+        {
+            return null;
+        }
+
+        var saved = await _analysisStore.LoadCompletedAnalysisAsync(
+            sourceId.Value,
+            snapshot,
+            cancellationToken);
+        if (saved is null)
+        {
+            return null;
+        }
+
+        var currentIds = eligibleItems.Select(item => item.Id).ToHashSet();
+        var savedIds = saved.Candidates
+            .SelectMany(candidate => candidate.Parts)
+            .Select(part => part.MediaItem.Id)
+            .ToHashSet();
+        return currentIds.SetEquals(savedIds) ? saved : null;
     }
 
     public Task<AudiobookCandidateGroup> EnrichMetadataAsync(
@@ -94,9 +185,7 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
         IProgress<AudiobookAnalysisProgress>? progress,
         CancellationToken cancellationToken)
     {
-        var eligibleItems = mediaItems
-            .Where(item => !item.IsMissing && AudioExtensions.Contains(item.Extension))
-            .ToList();
+        var eligibleItems = GetEligibleItems(mediaItems);
         var parsedCandidates = new List<ParsedCandidate>(eligibleItems.Count);
 
         progress?.Report(new AudiobookAnalysisProgress(
@@ -188,6 +277,166 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
             .ThenBy(group => group.Title, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
+
+    private async Task<IReadOnlyList<AudiobookCandidateGroup>> EnrichMetadataWithCheckpointsAsync(
+        Guid librarySourceId,
+        IReadOnlyList<AudiobookCandidateGroup> candidates,
+        IReadOnlyDictionary<Guid, AudiobookMetadataCacheEntry> validCache,
+        IProgress<AudiobookAnalysisProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        var parts = candidates.SelectMany(candidate => candidate.Parts).ToList();
+        var metadataByMediaItemId = validCache.ToDictionary(entry => entry.Key, entry => entry.Value.Metadata);
+        var processedCount = 0;
+        var warningCount = 0;
+
+        progress?.Report(new AudiobookAnalysisProgress(
+            AudiobookAnalysisStage.ReadingMetadata,
+            null,
+            0,
+            parts.Count));
+
+        foreach (var batch in parts.Chunk(CheckpointBatchSize))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var batchOffset = processedCount;
+            var batchWarningOffset = warningCount;
+            var batchResult = await Task.Run(() => ProcessMetadataBatch(
+                batch,
+                validCache,
+                batchOffset,
+                parts.Count,
+                batchWarningOffset,
+                progress,
+                cancellationToken), cancellationToken);
+
+            foreach (var result in batchResult.Results)
+            {
+                metadataByMediaItemId[result.MediaItemId] = result.Metadata;
+            }
+
+            processedCount += batch.Length;
+            warningCount += batchResult.WarningCount;
+            if (batchResult.NewEntries.Count > 0)
+            {
+                await _analysisStore.SaveCheckpointAsync(
+                    librarySourceId,
+                    batchResult.NewEntries,
+                    processedCount,
+                    parts.Count,
+                    warningCount,
+                    cancellationToken);
+            }
+        }
+
+        return await Task.Run(() => CreateEnrichedCandidates(
+            candidates,
+            metadataByMediaItemId,
+            cancellationToken), cancellationToken);
+    }
+
+    private MetadataBatchResult ProcessMetadataBatch(
+        IReadOnlyList<AudiobookCandidatePart> parts,
+        IReadOnlyDictionary<Guid, AudiobookMetadataCacheEntry> validCache,
+        int processedOffset,
+        int totalCount,
+        int warningOffset,
+        IProgress<AudiobookAnalysisProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        var results = new List<MetadataResult>(parts.Count);
+        var newEntries = new List<AudiobookMetadataCacheEntry>(parts.Count);
+        var batchWarningCount = 0;
+
+        for (var index = 0; index < parts.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var part = parts[index];
+            var mediaItem = part.MediaItem;
+            progress?.Report(new AudiobookAnalysisProgress(
+                AudiobookAnalysisStage.ReadingMetadata,
+                mediaItem.FullPath,
+                processedOffset + index,
+                totalCount,
+                warningOffset + batchWarningCount));
+
+            LocalMediaMetadata metadata;
+            if (validCache.TryGetValue(mediaItem.Id, out var cachedEntry))
+            {
+                metadata = cachedEntry.Metadata;
+            }
+            else
+            {
+                metadata = ReadMetadataSafely(mediaItem, part.Metadata);
+                newEntries.Add(new AudiobookMetadataCacheEntry(
+                    mediaItem.Id,
+                    mediaItem.SizeBytes,
+                    mediaItem.ModifiedAtUtc,
+                    DateTime.UtcNow,
+                    metadata));
+            }
+
+            if (metadata.Warnings.Count > 0)
+            {
+                batchWarningCount++;
+            }
+
+            results.Add(new MetadataResult(mediaItem.Id, metadata));
+            progress?.Report(new AudiobookAnalysisProgress(
+                AudiobookAnalysisStage.ReadingMetadata,
+                mediaItem.FullPath,
+                processedOffset + index + 1,
+                totalCount,
+                warningOffset + batchWarningCount));
+        }
+
+        return new MetadataBatchResult(results, newEntries, batchWarningCount);
+    }
+
+    private static IReadOnlyList<AudiobookCandidateGroup> CreateEnrichedCandidates(
+        IReadOnlyList<AudiobookCandidateGroup> candidates,
+        IReadOnlyDictionary<Guid, LocalMediaMetadata> metadataByMediaItemId,
+        CancellationToken cancellationToken)
+    {
+        var enrichedCandidates = new List<AudiobookCandidateGroup>(candidates.Count);
+        foreach (var candidate in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var parsedCandidates = candidate.Parts
+                .Select(part => Parse(part.MediaItem, metadataByMediaItemId[part.MediaItem.Id], metadataWasLoaded: true))
+                .ToList();
+            enrichedCandidates.Add(parsedCandidates
+                .GroupBy(value => value.GroupKey, StringComparer.OrdinalIgnoreCase)
+                .Select(CreateGroup)
+                .Single());
+        }
+
+        return enrichedCandidates
+            .OrderBy(group => group.Author ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(group => group.Title, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static List<MediaItem> GetEligibleItems(IEnumerable<MediaItem> mediaItems) =>
+        mediaItems
+            .Where(item => !item.IsMissing && AudioExtensions.Contains(item.Extension))
+            .ToList();
+
+    private static Guid? GetLibrarySourceId(IReadOnlyCollection<MediaItem> mediaItems)
+    {
+        if (mediaItems.Count == 0)
+        {
+            return null;
+        }
+
+        var sourceIds = mediaItems.Select(item => item.LibrarySourceId).Distinct().ToList();
+        return sourceIds.Count == 1
+            ? sourceIds[0]
+            : throw new ArgumentException("Audiobook analysis can only process one library source at a time.", nameof(mediaItems));
+    }
+
+    private static bool IsCacheValid(MediaItem mediaItem, AudiobookMetadataCacheEntry entry) =>
+        mediaItem.SizeBytes == entry.SizeBytes && mediaItem.ModifiedAtUtc == entry.ModifiedAtUtc;
 
     private LocalMediaMetadata ReadMetadataSafely(MediaItem mediaItem, LocalMediaMetadata fallback)
     {
@@ -434,4 +683,68 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
         bool SequenceWasInferred,
         LocalMediaMetadata Metadata,
         bool MetadataWasLoaded);
+
+    private sealed record MetadataResult(Guid MediaItemId, LocalMediaMetadata Metadata);
+
+    private sealed record MetadataBatchResult(
+        IReadOnlyList<MetadataResult> Results,
+        IReadOnlyList<AudiobookMetadataCacheEntry> NewEntries,
+        int WarningCount);
+
+    private sealed class NullAudiobookAnalysisStore : IAudiobookAnalysisStore
+    {
+        public static NullAudiobookAnalysisStore Instance { get; } = new();
+
+        public Task<IReadOnlyDictionary<Guid, AudiobookMetadataCacheEntry>> LoadMetadataCacheAsync(
+            Guid librarySourceId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyDictionary<Guid, AudiobookMetadataCacheEntry>>(
+                new Dictionary<Guid, AudiobookMetadataCacheEntry>());
+
+        public Task<SavedAudiobookAnalysis?> LoadCompletedAnalysisAsync(
+            Guid librarySourceId,
+            IReadOnlyList<MediaItem> currentMediaItems,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<SavedAudiobookAnalysis?>(null);
+
+        public Task BeginAnalysisAsync(
+            Guid librarySourceId,
+            int totalCount,
+            int reusedCount,
+            int warningCount,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task SaveCheckpointAsync(
+            Guid librarySourceId,
+            IReadOnlyCollection<AudiobookMetadataCacheEntry> metadataEntries,
+            int processedCount,
+            int totalCount,
+            int warningCount,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task CompleteAnalysisAsync(
+            Guid librarySourceId,
+            IReadOnlyList<AudiobookCandidateGroup> candidates,
+            int processedCount,
+            int totalCount,
+            int warningCount,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task MarkAnalysisInterruptedAsync(
+            Guid librarySourceId,
+            bool wasCancelled,
+            string? errorMessage,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<IReadOnlyDictionary<string, OnlineMetadataCacheEntry>> LoadOnlineMetadataCacheAsync(
+            Guid librarySourceId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyDictionary<string, OnlineMetadataCacheEntry>>(
+                new Dictionary<string, OnlineMetadataCacheEntry>());
+
+        public Task SaveOnlineMetadataCacheAsync(
+            Guid librarySourceId,
+            IReadOnlyCollection<OnlineMetadataCacheEntry> entries,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
 }

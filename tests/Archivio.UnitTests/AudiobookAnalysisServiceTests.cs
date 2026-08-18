@@ -264,6 +264,112 @@ public sealed class AudiobookAnalysisServiceTests
         Assert.Equal([item.FullPath], metadataService.ReadPaths);
     }
 
+    [Fact]
+    public async Task AnalyseAsync_ReusesUnchangedPersistentMetadataAndSavesCompletedCandidates()
+    {
+        var sourceId = Guid.NewGuid();
+        var item = CreateItem(sourceId, "Author/Book/Author - Book.m4b");
+        var cachedMetadata = CreateMetadata(
+            item.FullPath,
+            new MetadataValue("Saved Book", MetadataValueSource.EmbeddedTag),
+            new MetadataValue("Saved Author", MetadataValueSource.EmbeddedTag));
+        var store = new RecordingAnalysisStore();
+        store.Cache[item.Id] = new AudiobookMetadataCacheEntry(
+            item.Id,
+            item.SizeBytes,
+            item.ModifiedAtUtc,
+            DateTime.UtcNow,
+            cachedMetadata);
+        var metadataService = new StubLocalMediaMetadataService();
+        var service = new AudiobookAnalysisService(metadataService, store);
+
+        var result = await service.AnalyseAsync([item]);
+
+        Assert.Empty(metadataService.ReadPaths);
+        Assert.Equal(1, store.BeginReusedCount);
+        Assert.Equal("Saved Book", Assert.Single(result).Title);
+        Assert.Same(result, store.CompletedCandidates);
+    }
+
+    [Fact]
+    public async Task AnalyseAsync_CheckpointsNewMetadataAndIgnoresStaleCacheEntry()
+    {
+        var sourceId = Guid.NewGuid();
+        var item = CreateItem(sourceId, "Author/Book/Author - Book.m4b");
+        var store = new RecordingAnalysisStore();
+        store.Cache[item.Id] = new AudiobookMetadataCacheEntry(
+            item.Id,
+            item.SizeBytes + 1,
+            item.ModifiedAtUtc,
+            DateTime.UtcNow,
+            CreateMetadata(item.FullPath));
+        var metadataService = new StubLocalMediaMetadataService();
+        var service = new AudiobookAnalysisService(metadataService, store);
+
+        await service.AnalyseAsync([item]);
+
+        Assert.Equal([item.FullPath], metadataService.ReadPaths);
+        var checkpoint = Assert.Single(store.CheckpointEntries);
+        Assert.Equal(item.Id, checkpoint.MediaItemId);
+        Assert.Equal(item.SizeBytes, checkpoint.SizeBytes);
+    }
+
+    [Fact]
+    public async Task LoadSavedAnalysis_ReturnsNullWhenCurrentAudioSetHasChanged()
+    {
+        var sourceId = Guid.NewGuid();
+        var savedItem = CreateItem(sourceId, "Author/Book/Author - Book.m4b");
+        var newItem = CreateItem(sourceId, "Author/New/Author - New.m4b");
+        var savedCandidate = Assert.Single(CreateService().Analyse([savedItem]));
+        var store = new RecordingAnalysisStore
+        {
+            SavedAnalysis = new SavedAudiobookAnalysis(DateTime.UtcNow, 0, [savedCandidate])
+        };
+        var service = new AudiobookAnalysisService(new StubLocalMediaMetadataService(), store);
+
+        var result = await service.LoadSavedAnalysisAsync([savedItem, newItem]);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task AnalyseAsync_ResumesFromLastCompletedCheckpointAfterCancellation()
+    {
+        var sourceId = Guid.NewGuid();
+        var items = Enumerable.Range(1, 51)
+            .Select(index => CreateItem(
+                sourceId,
+                $"Author/Book {index:D2}/Author - Book {index:D2}.m4b"))
+            .ToList();
+        using var cancellation = new CancellationTokenSource();
+        var reads = 0;
+        var firstReader = new StubLocalMediaMetadataService(path =>
+        {
+            reads++;
+            if (reads == 51)
+            {
+                cancellation.Cancel();
+            }
+
+            return CreateMetadata(path);
+        });
+        var store = new RecordingAnalysisStore();
+        var firstService = new AudiobookAnalysisService(firstReader, store);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            firstService.AnalyseAsync(items, cancellationToken: cancellation.Token));
+
+        Assert.Equal(50, store.Cache.Count);
+
+        var resumedReader = new StubLocalMediaMetadataService();
+        var resumedService = new AudiobookAnalysisService(resumedReader, store);
+        var result = await resumedService.AnalyseAsync(items);
+
+        Assert.Equal(50, store.BeginReusedCount);
+        Assert.Single(resumedReader.ReadPaths);
+        Assert.Equal(51, result.Count);
+    }
+
     private static AudiobookAnalysisService CreateService() => new(new StubLocalMediaMetadataService());
 
     private static LocalMediaMetadata CreateMetadata(
@@ -312,5 +418,82 @@ public sealed class AudiobookAnalysisServiceTests
         public List<T> Values { get; } = [];
 
         public void Report(T value) => Values.Add(value);
+    }
+
+    private sealed class RecordingAnalysisStore : IAudiobookAnalysisStore
+    {
+        public Dictionary<Guid, AudiobookMetadataCacheEntry> Cache { get; } = [];
+        public List<AudiobookMetadataCacheEntry> CheckpointEntries { get; } = [];
+        public int BeginReusedCount { get; private set; }
+        public IReadOnlyList<AudiobookCandidateGroup>? CompletedCandidates { get; private set; }
+        public SavedAudiobookAnalysis? SavedAnalysis { get; set; }
+
+        public Task<IReadOnlyDictionary<Guid, AudiobookMetadataCacheEntry>> LoadMetadataCacheAsync(
+            Guid librarySourceId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyDictionary<Guid, AudiobookMetadataCacheEntry>>(Cache);
+
+        public Task<SavedAudiobookAnalysis?> LoadCompletedAnalysisAsync(
+            Guid librarySourceId,
+            IReadOnlyList<MediaItem> currentMediaItems,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(SavedAnalysis);
+
+        public Task BeginAnalysisAsync(
+            Guid librarySourceId,
+            int totalCount,
+            int reusedCount,
+            int warningCount,
+            CancellationToken cancellationToken = default)
+        {
+            BeginReusedCount = reusedCount;
+            return Task.CompletedTask;
+        }
+
+        public Task SaveCheckpointAsync(
+            Guid librarySourceId,
+            IReadOnlyCollection<AudiobookMetadataCacheEntry> metadataEntries,
+            int processedCount,
+            int totalCount,
+            int warningCount,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            CheckpointEntries.AddRange(metadataEntries);
+            foreach (var entry in metadataEntries)
+            {
+                Cache[entry.MediaItemId] = entry;
+            }
+            return Task.CompletedTask;
+        }
+
+        public Task CompleteAnalysisAsync(
+            Guid librarySourceId,
+            IReadOnlyList<AudiobookCandidateGroup> candidates,
+            int processedCount,
+            int totalCount,
+            int warningCount,
+            CancellationToken cancellationToken = default)
+        {
+            CompletedCandidates = candidates;
+            return Task.CompletedTask;
+        }
+
+        public Task MarkAnalysisInterruptedAsync(
+            Guid librarySourceId,
+            bool wasCancelled,
+            string? errorMessage,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<IReadOnlyDictionary<string, OnlineMetadataCacheEntry>> LoadOnlineMetadataCacheAsync(
+            Guid librarySourceId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyDictionary<string, OnlineMetadataCacheEntry>>(
+                new Dictionary<string, OnlineMetadataCacheEntry>());
+
+        public Task SaveOnlineMetadataCacheAsync(
+            Guid librarySourceId,
+            IReadOnlyCollection<OnlineMetadataCacheEntry> entries,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

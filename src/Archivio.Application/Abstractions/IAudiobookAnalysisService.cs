@@ -11,6 +11,10 @@ public interface IAudiobookAnalysisService
         IProgress<AudiobookAnalysisProgress>? progress = null,
         CancellationToken cancellationToken = default);
 
+    Task<SavedAudiobookAnalysis?> LoadSavedAnalysisAsync(
+        IEnumerable<MediaItem> mediaItems,
+        CancellationToken cancellationToken = default);
+
     Task<AudiobookCandidateGroup> EnrichMetadataAsync(
         AudiobookCandidateGroup candidate,
         IProgress<AudiobookAnalysisProgress>? progress = null,

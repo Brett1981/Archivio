@@ -13,6 +13,48 @@ public partial class ArchivioDbContextModelSnapshot : ModelSnapshot
     {
         modelBuilder.HasAnnotation("ProductVersion", "10.0.10");
 
+        modelBuilder.Entity<AudiobookAnalysisRunEntity>(entity =>
+        {
+            entity.Property(x => x.Id).HasColumnType("TEXT");
+            entity.Property(x => x.CandidateCount).HasColumnType("INTEGER");
+            entity.Property(x => x.CompletedAtUtc).HasColumnType("TEXT");
+            entity.Property(x => x.ErrorMessage).HasMaxLength(2048).HasColumnType("TEXT");
+            entity.Property(x => x.LibrarySourceId).HasColumnType("TEXT");
+            entity.Property(x => x.ProcessedCount).HasColumnType("INTEGER");
+            entity.Property(x => x.StartedAtUtc).HasColumnType("TEXT");
+            entity.Property(x => x.Status).HasConversion<int>().HasColumnType("INTEGER");
+            entity.Property(x => x.TotalCount).HasColumnType("INTEGER");
+            entity.Property(x => x.UpdatedAtUtc).HasColumnType("TEXT");
+            entity.Property(x => x.WarningCount).HasColumnType("INTEGER");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.LibrarySourceId).IsUnique();
+            entity.ToTable("AudiobookAnalysisRuns");
+        });
+
+        modelBuilder.Entity<AudiobookCandidateSnapshotEntity>(entity =>
+        {
+            entity.Property(x => x.Id).HasColumnType("TEXT");
+            entity.Property(x => x.AnalysisRunId).HasColumnType("TEXT");
+            entity.Property(x => x.CandidateJson).IsRequired().HasColumnType("TEXT");
+            entity.Property(x => x.SortOrder).HasColumnType("INTEGER");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.AnalysisRunId, x.SortOrder }).IsUnique();
+            entity.ToTable("AudiobookCandidateSnapshots");
+        });
+
+        modelBuilder.Entity<AudiobookMetadataCacheEntity>(entity =>
+        {
+            entity.Property(x => x.MediaItemId).HasColumnType("TEXT");
+            entity.Property(x => x.AnalysedAtUtc).HasColumnType("TEXT");
+            entity.Property(x => x.LibrarySourceId).HasColumnType("TEXT");
+            entity.Property(x => x.MetadataJson).IsRequired().HasColumnType("TEXT");
+            entity.Property(x => x.ModifiedAtUtc).HasColumnType("TEXT");
+            entity.Property(x => x.SizeBytes).HasColumnType("INTEGER");
+            entity.HasKey(x => x.MediaItemId);
+            entity.HasIndex(x => x.LibrarySourceId);
+            entity.ToTable("AudiobookMetadataCache");
+        });
+
         modelBuilder.Entity<LibrarySource>(entity =>
         {
             entity.Property(x => x.Id).HasColumnType("TEXT");
@@ -47,6 +89,18 @@ public partial class ArchivioDbContextModelSnapshot : ModelSnapshot
             entity.ToTable("MediaItems");
         });
 
+        modelBuilder.Entity<OnlineMetadataCacheEntity>(entity =>
+        {
+            entity.Property(x => x.CandidateKey).HasMaxLength(64).HasColumnType("TEXT");
+            entity.Property(x => x.InputSignature).IsRequired().HasMaxLength(64).HasColumnType("TEXT");
+            entity.Property(x => x.LibrarySourceId).HasColumnType("TEXT");
+            entity.Property(x => x.RetrievedAtUtc).HasColumnType("TEXT");
+            entity.Property(x => x.SuggestionJson).HasColumnType("TEXT");
+            entity.HasKey(x => x.CandidateKey);
+            entity.HasIndex(x => x.LibrarySourceId);
+            entity.ToTable("OnlineMetadataCache");
+        });
+
         modelBuilder.Entity<SystemRecord>(entity =>
         {
             entity.Property(x => x.Id).HasColumnType("TEXT");
@@ -60,6 +114,41 @@ public partial class ArchivioDbContextModelSnapshot : ModelSnapshot
 
         modelBuilder.Entity<MediaItem>()
             .HasOne(x => x.LibrarySource)
+            .WithMany()
+            .HasForeignKey(x => x.LibrarySourceId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .IsRequired();
+
+        modelBuilder.Entity<AudiobookAnalysisRunEntity>()
+            .HasOne<LibrarySource>()
+            .WithMany()
+            .HasForeignKey(x => x.LibrarySourceId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .IsRequired();
+
+        modelBuilder.Entity<AudiobookCandidateSnapshotEntity>()
+            .HasOne<AudiobookAnalysisRunEntity>()
+            .WithMany()
+            .HasForeignKey(x => x.AnalysisRunId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .IsRequired();
+
+        modelBuilder.Entity<AudiobookMetadataCacheEntity>()
+            .HasOne<LibrarySource>()
+            .WithMany()
+            .HasForeignKey(x => x.LibrarySourceId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .IsRequired();
+
+        modelBuilder.Entity<AudiobookMetadataCacheEntity>()
+            .HasOne<MediaItem>()
+            .WithOne()
+            .HasForeignKey<AudiobookMetadataCacheEntity>(x => x.MediaItemId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .IsRequired();
+
+        modelBuilder.Entity<OnlineMetadataCacheEntity>()
+            .HasOne<LibrarySource>()
             .WithMany()
             .HasForeignKey(x => x.LibrarySourceId)
             .OnDelete(DeleteBehavior.Cascade)

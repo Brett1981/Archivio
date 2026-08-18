@@ -8,6 +8,10 @@ public sealed class ArchivioDbContext(DbContextOptions<ArchivioDbContext> option
     public DbSet<SystemRecord> SystemRecords => Set<SystemRecord>();
     public DbSet<LibrarySource> LibrarySources => Set<LibrarySource>();
     public DbSet<MediaItem> MediaItems => Set<MediaItem>();
+    internal DbSet<AudiobookAnalysisRunEntity> AudiobookAnalysisRuns => Set<AudiobookAnalysisRunEntity>();
+    internal DbSet<AudiobookMetadataCacheEntity> AudiobookMetadataCache => Set<AudiobookMetadataCacheEntity>();
+    internal DbSet<AudiobookCandidateSnapshotEntity> AudiobookCandidateSnapshots => Set<AudiobookCandidateSnapshotEntity>();
+    internal DbSet<OnlineMetadataCacheEntity> OnlineMetadataCache => Set<OnlineMetadataCacheEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -50,6 +54,72 @@ public sealed class ArchivioDbContext(DbContextOptions<ArchivioDbContext> option
             entity.HasIndex(x => new { x.LibrarySourceId, x.FullPath }).IsUnique();
             entity.HasIndex(x => new { x.LibrarySourceId, x.RelativePath });
             entity.HasOne(x => x.LibrarySource)
+                .WithMany()
+                .HasForeignKey(x => x.LibrarySourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AudiobookAnalysisRunEntity>(entity =>
+        {
+            entity.ToTable("AudiobookAnalysisRuns");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Status).HasConversion<int>().IsRequired();
+            entity.Property(x => x.StartedAtUtc).IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).IsRequired();
+            entity.Property(x => x.ProcessedCount).IsRequired();
+            entity.Property(x => x.TotalCount).IsRequired();
+            entity.Property(x => x.WarningCount).IsRequired();
+            entity.Property(x => x.CandidateCount).IsRequired();
+            entity.Property(x => x.ErrorMessage).HasMaxLength(2048);
+            entity.HasIndex(x => x.LibrarySourceId).IsUnique();
+            entity.HasOne<LibrarySource>()
+                .WithMany()
+                .HasForeignKey(x => x.LibrarySourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AudiobookMetadataCacheEntity>(entity =>
+        {
+            entity.ToTable("AudiobookMetadataCache");
+            entity.HasKey(x => x.MediaItemId);
+            entity.Property(x => x.SizeBytes).IsRequired();
+            entity.Property(x => x.ModifiedAtUtc).IsRequired();
+            entity.Property(x => x.AnalysedAtUtc).IsRequired();
+            entity.Property(x => x.MetadataJson).IsRequired();
+            entity.HasIndex(x => x.LibrarySourceId);
+            entity.HasOne<MediaItem>()
+                .WithOne()
+                .HasForeignKey<AudiobookMetadataCacheEntity>(x => x.MediaItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<LibrarySource>()
+                .WithMany()
+                .HasForeignKey(x => x.LibrarySourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AudiobookCandidateSnapshotEntity>(entity =>
+        {
+            entity.ToTable("AudiobookCandidateSnapshots");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.SortOrder).IsRequired();
+            entity.Property(x => x.CandidateJson).IsRequired();
+            entity.HasIndex(x => new { x.AnalysisRunId, x.SortOrder }).IsUnique();
+            entity.HasOne<AudiobookAnalysisRunEntity>()
+                .WithMany()
+                .HasForeignKey(x => x.AnalysisRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<OnlineMetadataCacheEntity>(entity =>
+        {
+            entity.ToTable("OnlineMetadataCache");
+            entity.HasKey(x => x.CandidateKey);
+            entity.Property(x => x.CandidateKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.InputSignature).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.RetrievedAtUtc).IsRequired();
+            entity.Property(x => x.SuggestionJson);
+            entity.HasIndex(x => x.LibrarySourceId);
+            entity.HasOne<LibrarySource>()
                 .WithMany()
                 .HasForeignKey(x => x.LibrarySourceId)
                 .OnDelete(DeleteBehavior.Cascade);

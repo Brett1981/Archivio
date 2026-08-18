@@ -22,8 +22,16 @@ public sealed class DatabaseMigrationTests
 
         Assert.Equal(1, await CountTableAsync(connection, "SystemRecords"));
         Assert.Equal(1, await CountTableAsync(connection, "LibrarySources"));
+        Assert.Equal(1, await CountTableAsync(connection, "MediaItems"));
+        Assert.Equal(1, await CountTableAsync(connection, "AudiobookAnalysisRuns"));
+        Assert.Equal(1, await CountTableAsync(connection, "AudiobookMetadataCache"));
+        Assert.Equal(1, await CountTableAsync(connection, "AudiobookCandidateSnapshots"));
+        Assert.Equal(1, await CountTableAsync(connection, "OnlineMetadataCache"));
         Assert.Equal(1, await CountMigrationAsync(connection, "202607210001_InitialCreate"));
         Assert.Equal(1, await CountMigrationAsync(connection, "202607210002_AddLibrarySources"));
+        Assert.Equal(1, await CountMigrationAsync(connection, "20260721120000_AddMediaItems"));
+        Assert.Equal(1, await CountMigrationAsync(connection, "20260818170000_PersistAudiobookAnalysis"));
+        Assert.Equal(1, await CountMigrationAsync(connection, "20260818180000_AddOnlineMetadataCache"));
     }
 
     private static async Task<long> CountTableAsync(SqliteConnection connection, string tableName)

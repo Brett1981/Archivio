@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Archivio.Domain;
 
 namespace Archivio.Application.Abstractions;
@@ -13,6 +15,7 @@ public sealed record AudiobookCandidateGroup(
     decimal Confidence,
     IReadOnlyList<string> Warnings)
 {
+    public OnlineMetadataSuggestion? OnlineSuggestion { get; init; }
     public bool IsMultipart => Parts.Count > 1;
     public bool NeedsReview => Confidence < 0.80m || Warnings.Count > 0;
     public string TypeLabel => IsMultipart ? "Multipart" : "Single file";
@@ -24,6 +27,20 @@ public sealed record AudiobookCandidateGroup(
     public string MetadataStatusLabel => HasLoadedLocalMetadata
         ? "Local metadata loaded"
         : "Select to load local metadata";
+    public bool HasOnlineSuggestion => OnlineSuggestion is not null;
+    public string OnlineSuggestionLabel => OnlineSuggestion is null
+        ? "No online suggestion"
+        : OnlineSuggestion.ProvenanceDisplay;
+    public string CandidateKey
+    {
+        get
+        {
+            var identity = string.Join(
+                "|",
+                Parts.Select(part => part.MediaItem.Id).OrderBy(id => id));
+            return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)));
+        }
+    }
 
     public IReadOnlyList<string> ConfidenceReasons
     {
