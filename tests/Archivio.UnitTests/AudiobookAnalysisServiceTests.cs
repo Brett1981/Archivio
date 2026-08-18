@@ -181,6 +181,89 @@ public sealed class AudiobookAnalysisServiceTests
         Assert.True(group.NeedsReview);
     }
 
+    [Fact]
+    public async Task AnalyseAsync_AutomaticallyReadsAllMetadataAndReportsBothStages()
+    {
+        var sourceId = Guid.NewGuid();
+        var first = CreateItem(sourceId, "Author/First/Author - First.m4b");
+        var second = CreateItem(sourceId, "Author/Second/Author - Second.mp3");
+        var metadataService = new StubLocalMediaMetadataService();
+        var progress = new RecordingProgress<AudiobookAnalysisProgress>();
+        var service = new AudiobookAnalysisService(metadataService);
+
+        var groups = await service.AnalyseAsync([first, second], progress);
+
+        Assert.Equal(2, groups.Count);
+        Assert.Equal([first.FullPath, second.FullPath], metadataService.ReadPaths);
+        Assert.All(groups, group => Assert.True(group.HasLoadedLocalMetadata));
+        Assert.Contains(progress.Values, value => value.Stage == AudiobookAnalysisStage.Grouping);
+        var finalMetadataProgress = progress.Values
+            .Last(value => value.Stage == AudiobookAnalysisStage.ReadingMetadata);
+        Assert.Equal(2, finalMetadataProgress.ProcessedCount);
+        Assert.Equal(2, finalMetadataProgress.TotalCount);
+    }
+
+    [Fact]
+    public async Task AnalyseAsync_CanBeCancelledDuringMetadataReading()
+    {
+        var sourceId = Guid.NewGuid();
+        var first = CreateItem(sourceId, "Author/Book/Author - Book Part 1.mp3");
+        var second = CreateItem(sourceId, "Author/Book/Author - Book Part 2.mp3");
+        using var cancellation = new CancellationTokenSource();
+        var metadataService = new StubLocalMediaMetadataService(path =>
+        {
+            cancellation.Cancel();
+            return CreateMetadata(path);
+        });
+        var service = new AudiobookAnalysisService(metadataService);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            service.AnalyseAsync([first, second], cancellationToken: cancellation.Token));
+
+        Assert.Single(metadataService.ReadPaths);
+    }
+
+    [Fact]
+    public async Task AnalyseAsync_ContinuesWhenOneMetadataReaderCallThrowsUnexpectedException()
+    {
+        var sourceId = Guid.NewGuid();
+        var first = CreateItem(sourceId, "Author/First/Author - First.m4b");
+        var second = CreateItem(sourceId, "Author/Second/Author - Second.m4b");
+        var metadataService = new StubLocalMediaMetadataService(path =>
+            path == first.FullPath
+                ? throw new InvalidOperationException("Invalid atom layout.")
+                : CreateMetadata(path));
+        var progress = new RecordingProgress<AudiobookAnalysisProgress>();
+        var service = new AudiobookAnalysisService(metadataService);
+
+        var groups = await service.AnalyseAsync([first, second], progress);
+
+        Assert.Equal(2, groups.Count);
+        Assert.Equal([first.FullPath, second.FullPath], metadataService.ReadPaths);
+        var failedPart = Assert.Single(groups.Single(group => group.Title == "First").Parts);
+        Assert.Contains(failedPart.Metadata.Warnings, warning =>
+            warning.Contains("InvalidOperationException", StringComparison.Ordinal));
+        var finalProgress = progress.Values
+            .Last(value => value.Stage == AudiobookAnalysisStage.ReadingMetadata);
+        Assert.Equal(2, finalProgress.ProcessedCount);
+        Assert.Equal(1, finalProgress.WarningCount);
+    }
+
+    [Fact]
+    public async Task EnrichMetadataAsync_DoesNotReopenFilesForLoadedCandidate()
+    {
+        var sourceId = Guid.NewGuid();
+        var item = CreateItem(sourceId, "Author/Book/Author - Book.m4b");
+        var metadataService = new StubLocalMediaMetadataService();
+        var service = new AudiobookAnalysisService(metadataService);
+        var candidate = Assert.Single(service.Analyse([item]));
+
+        var enrichedAgain = await service.EnrichMetadataAsync(candidate);
+
+        Assert.Same(candidate, enrichedAgain);
+        Assert.Equal([item.FullPath], metadataService.ReadPaths);
+    }
+
     private static AudiobookAnalysisService CreateService() => new(new StubLocalMediaMetadataService());
 
     private static LocalMediaMetadata CreateMetadata(
@@ -222,5 +305,12 @@ public sealed class AudiobookAnalysisServiceTests
             ReadPaths.Add(filePath);
             return reader?.Invoke(filePath) ?? CreateMetadata(filePath);
         }
+    }
+
+    private sealed class RecordingProgress<T> : IProgress<T>
+    {
+        public List<T> Values { get; } = [];
+
+        public void Report(T value) => Values.Add(value);
     }
 }

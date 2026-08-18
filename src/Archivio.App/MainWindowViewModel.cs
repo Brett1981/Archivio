@@ -72,11 +72,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(SaveCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeleteCommand))]
     [NotifyCanExecuteChangedFor(nameof(StartScanCommand))]
+    [NotifyCanExecuteChangedFor(nameof(AnalyseAudiobooksCommand))]
     private bool _isBusy;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(StartScanCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelScanCommand))]
+    [NotifyCanExecuteChangedFor(nameof(AnalyseAudiobooksCommand))]
     private bool _isScanRunning;
 
     [ObservableProperty]
@@ -84,6 +86,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     [ObservableProperty]
     private int _scanDiscoveredCount;
+
+    public int ScanProgressMaximum => Math.Max(1, ScanDiscoveredCount);
 
     [ObservableProperty]
     private int _scanProcessedCount;
@@ -100,8 +104,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty]
     private string _scanCurrentPath = string.Empty;
 
+    partial void OnScanDiscoveredCountChanged(int value) =>
+        OnPropertyChanged(nameof(ScanProgressMaximum));
+
     partial void OnSelectedSourceChanged(LibrarySource? value)
     {
+        ResetAudiobookAnalysis();
+
         if (value is null)
         {
             MediaItems.Clear();

@@ -8,6 +8,7 @@ public sealed record AudiobookCandidateGroup(
     string Title,
     MetadataValueSource AuthorSource,
     MetadataValueSource TitleSource,
+    bool HasLoadedLocalMetadata,
     IReadOnlyList<AudiobookCandidatePart> Parts,
     decimal Confidence,
     IReadOnlyList<string> Warnings)
@@ -20,6 +21,9 @@ public sealed record AudiobookCandidateGroup(
     public string AuthorSourceDisplay => new MetadataValue(Author, AuthorSource).SourceDisplay;
     public string TitleSourceDisplay => new MetadataValue(Title, TitleSource).SourceDisplay;
     public string MetadataProvenanceSummary => $"Title: {TitleSourceDisplay} · Author: {AuthorSourceDisplay}";
+    public string MetadataStatusLabel => HasLoadedLocalMetadata
+        ? "Local metadata loaded"
+        : "Select to load local metadata";
 
     public IReadOnlyList<string> ConfidenceReasons
     {

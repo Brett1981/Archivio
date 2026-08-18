@@ -35,7 +35,25 @@ public sealed class LibraryScanService(
         }
 
         Report(progress, source.Id, LibraryScanStage.Discovering, $"Discovering files in {source.Name}", source.Path, 0, 0, 0, 0, 0, startedAtUtc);
-        var discovery = await fileDiscoveryService.DiscoverAsync(source.Path, cancellationToken);
+        IProgress<FileDiscoveryProgress>? discoveryProgress = progress is null
+            ? null
+            : new InlineProgress<FileDiscoveryProgress>(value => Report(
+                progress,
+                source.Id,
+                LibraryScanStage.Discovering,
+                BuildDiscoveryStatus(value),
+                value.CurrentPath,
+                value.DiscoveredFileCount,
+                0,
+                0,
+                0,
+                0,
+                startedAtUtc));
+        var discovery = await fileDiscoveryService.DiscoverAsync(
+            source.Path,
+            LibrarySourceDiscoveryOptions.For(source.Type),
+            discoveryProgress,
+            cancellationToken);
         var existingItems = await mediaItemRepository.GetByLibrarySourceIdAsync(source.Id, cancellationToken);
         var existingByPath = existingItems.ToDictionary(item => item.FullPath, StringComparer.OrdinalIgnoreCase);
         var discoveredPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -99,9 +117,23 @@ public sealed class LibraryScanService(
         return result;
     }
 
+    private static string BuildDiscoveryStatus(FileDiscoveryProgress progress)
+    {
+        var status = $"Discovering: {progress.DiscoveredFileCount} media file{(progress.DiscoveredFileCount == 1 ? string.Empty : "s")} " +
+            $"in {progress.ScannedDirectoryCount} folder{(progress.ScannedDirectoryCount == 1 ? string.Empty : "s")}";
+        return progress.IssueCount == 0
+            ? status
+            : $"{status} ({progress.IssueCount} skipped issue{(progress.IssueCount == 1 ? string.Empty : "s")})";
+    }
+
     private static void Report(IProgress<LibraryScanProgress>? progress, Guid sourceId, LibraryScanStage stage,
         string status, string? currentPath, int discovered, int processed, int added, int refreshed, int missing,
         DateTime startedAtUtc) =>
         progress?.Report(new LibraryScanProgress(sourceId, stage, status, currentPath, discovered, processed,
             added, refreshed, missing, startedAtUtc));
+
+    private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
+    }
 }

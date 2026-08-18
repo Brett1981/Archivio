@@ -1,3 +1,4 @@
+using Archivio.Application.Abstractions;
 using Archivio.Media;
 
 namespace Archivio.UnitTests;
@@ -69,6 +70,40 @@ public sealed class SafeFileDiscoveryServiceTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => service.DiscoverAsync(fixture.Path, cancellation.Token));
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_FiltersExtensionsSkipsSystemFoldersAndReportsProgress()
+    {
+        using var fixture = new TemporaryDirectory();
+        var mediaDirectory = Directory.CreateDirectory(Path.Combine(fixture.Path, "Media"));
+        var excludedDirectory = Directory.CreateDirectory(Path.Combine(fixture.Path, "System Volume Information"));
+        await File.WriteAllBytesAsync(Path.Combine(mediaDirectory.FullName, "book.MP3"), [1, 2, 3]);
+        await File.WriteAllTextAsync(Path.Combine(mediaDirectory.FullName, "notes.tmp"), "ignore");
+        await File.WriteAllBytesAsync(Path.Combine(excludedDirectory.FullName, "hidden.mp3"), [4, 5, 6]);
+        var progressValues = new List<FileDiscoveryProgress>();
+        var progress = new InlineProgress<FileDiscoveryProgress>(progressValues.Add);
+        var options = new FileDiscoveryOptions(
+            new HashSet<string>([".mp3"], StringComparer.OrdinalIgnoreCase),
+            FileDiscoveryOptions.Default.ExcludedDirectoryNames);
+
+        var result = await new SafeFileDiscoveryService().DiscoverAsync(
+            fixture.Path,
+            options,
+            progress);
+
+        var file = Assert.Single(result.Files);
+        Assert.Equal("book.MP3", Path.GetFileName(file.FullPath));
+        Assert.DoesNotContain(result.Files, value => value.FullPath.Contains("System Volume Information"));
+        Assert.NotEmpty(progressValues);
+        Assert.Equal(1, progressValues[^1].DiscoveredFileCount);
+        Assert.Equal(2, progressValues[^1].ScannedDirectoryCount);
+        Assert.Equal(0, progressValues[^1].IssueCount);
+    }
+
+    private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
     }
 
     private sealed class TemporaryDirectory : IDisposable

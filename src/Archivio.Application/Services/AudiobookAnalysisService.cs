@@ -24,21 +24,196 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
     {
         ArgumentNullException.ThrowIfNull(mediaItems);
 
-        var candidates = mediaItems
+        var groups = AnalyseCore(mediaItems, null, CancellationToken.None);
+        return EnrichMetadataCore(groups, null, CancellationToken.None);
+    }
+
+    public Task<IReadOnlyList<AudiobookCandidateGroup>> AnalyseAsync(
+        IEnumerable<MediaItem> mediaItems,
+        IProgress<AudiobookAnalysisProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mediaItems);
+        var snapshot = mediaItems.ToList();
+        return Task.Run<IReadOnlyList<AudiobookCandidateGroup>>(
+            () =>
+            {
+                var groups = AnalyseCore(snapshot, progress, cancellationToken);
+                return EnrichMetadataCore(groups, progress, cancellationToken);
+            },
+            cancellationToken);
+    }
+
+    public Task<AudiobookCandidateGroup> EnrichMetadataAsync(
+        AudiobookCandidateGroup candidate,
+        IProgress<AudiobookAnalysisProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+
+        if (candidate.HasLoadedLocalMetadata)
+        {
+            return Task.FromResult(candidate);
+        }
+
+        return Task.Run(() =>
+        {
+            var parsedCandidates = new List<ParsedCandidate>(candidate.Parts.Count);
+            for (var index = 0; index < candidate.Parts.Count; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var mediaItem = candidate.Parts[index].MediaItem;
+                progress?.Report(new AudiobookAnalysisProgress(
+                    AudiobookAnalysisStage.ReadingMetadata,
+                    mediaItem.FullPath,
+                    index,
+                    candidate.Parts.Count));
+
+                var metadata = ReadMetadataSafely(mediaItem, candidate.Parts[index].Metadata);
+                parsedCandidates.Add(Parse(mediaItem, metadata, metadataWasLoaded: true));
+
+                progress?.Report(new AudiobookAnalysisProgress(
+                    AudiobookAnalysisStage.ReadingMetadata,
+                    mediaItem.FullPath,
+                    index + 1,
+                    candidate.Parts.Count));
+            }
+
+            var enrichedGroups = parsedCandidates
+                .GroupBy(value => value.GroupKey, StringComparer.OrdinalIgnoreCase)
+                .Select(CreateGroup)
+                .ToList();
+            return enrichedGroups.Count == 1
+                ? enrichedGroups[0]
+                : throw new InvalidOperationException("The selected audiobook candidate could not be enriched as one group.");
+        }, cancellationToken);
+    }
+
+    private static IReadOnlyList<AudiobookCandidateGroup> AnalyseCore(
+        IEnumerable<MediaItem> mediaItems,
+        IProgress<AudiobookAnalysisProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        var eligibleItems = mediaItems
             .Where(item => !item.IsMissing && AudioExtensions.Contains(item.Extension))
-            .Select(Parse)
+            .ToList();
+        var parsedCandidates = new List<ParsedCandidate>(eligibleItems.Count);
+
+        progress?.Report(new AudiobookAnalysisProgress(
+            AudiobookAnalysisStage.Grouping,
+            null,
+            0,
+            eligibleItems.Count));
+
+        for (var index = 0; index < eligibleItems.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var item = eligibleItems[index];
+            parsedCandidates.Add(Parse(item));
+
+            if (index == 0 || (index + 1) % 100 == 0 || index == eligibleItems.Count - 1)
+            {
+                progress?.Report(new AudiobookAnalysisProgress(
+                    AudiobookAnalysisStage.Grouping,
+                    item.FullPath,
+                    index + 1,
+                    eligibleItems.Count));
+            }
+        }
+
+        return parsedCandidates
             .GroupBy(candidate => candidate.GroupKey, StringComparer.OrdinalIgnoreCase)
             .Select(CreateGroup)
             .OrderBy(group => group.Author ?? string.Empty, StringComparer.OrdinalIgnoreCase)
             .ThenBy(group => group.Title, StringComparer.OrdinalIgnoreCase)
             .ToList();
-
-        return candidates;
     }
 
-    private ParsedCandidate Parse(MediaItem item)
+    private IReadOnlyList<AudiobookCandidateGroup> EnrichMetadataCore(
+        IReadOnlyList<AudiobookCandidateGroup> candidates,
+        IProgress<AudiobookAnalysisProgress>? progress,
+        CancellationToken cancellationToken)
     {
-        var metadata = _localMediaMetadataService.Read(item.FullPath);
+        var totalParts = candidates.Sum(candidate => candidate.Parts.Count);
+        var processedParts = 0;
+        var warningCount = 0;
+        var enrichedCandidates = new List<AudiobookCandidateGroup>(candidates.Count);
+
+        progress?.Report(new AudiobookAnalysisProgress(
+            AudiobookAnalysisStage.ReadingMetadata,
+            null,
+            0,
+            totalParts));
+
+        foreach (var candidate in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var parsedCandidates = new List<ParsedCandidate>(candidate.Parts.Count);
+
+            foreach (var part in candidate.Parts)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var mediaItem = part.MediaItem;
+                progress?.Report(new AudiobookAnalysisProgress(
+                    AudiobookAnalysisStage.ReadingMetadata,
+                    mediaItem.FullPath,
+                    processedParts,
+                    totalParts,
+                    warningCount));
+
+                var metadata = ReadMetadataSafely(mediaItem, part.Metadata);
+                parsedCandidates.Add(Parse(mediaItem, metadata, metadataWasLoaded: true));
+                processedParts++;
+                if (metadata.Warnings.Count > 0)
+                {
+                    warningCount++;
+                }
+
+                progress?.Report(new AudiobookAnalysisProgress(
+                    AudiobookAnalysisStage.ReadingMetadata,
+                    mediaItem.FullPath,
+                    processedParts,
+                    totalParts,
+                    warningCount));
+            }
+
+            enrichedCandidates.Add(parsedCandidates
+                .GroupBy(value => value.GroupKey, StringComparer.OrdinalIgnoreCase)
+                .Select(CreateGroup)
+                .Single());
+        }
+
+        return enrichedCandidates
+            .OrderBy(group => group.Author ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(group => group.Title, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private LocalMediaMetadata ReadMetadataSafely(MediaItem mediaItem, LocalMediaMetadata fallback)
+    {
+        try
+        {
+            return _localMediaMetadataService.Read(mediaItem.FullPath);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and
+                                          not StackOverflowException and
+                                          not AccessViolationException)
+        {
+            return fallback with
+            {
+                Warnings =
+                [
+                    $"Metadata reader failed with {exception.GetType().Name}: {exception.Message}"
+                ]
+            };
+        }
+    }
+
+    private static ParsedCandidate Parse(
+        MediaItem item,
+        LocalMediaMetadata? metadata = null,
+        bool metadataWasLoaded = false)
+    {
         var stem = Path.GetFileNameWithoutExtension(item.FileName).Trim();
         var partMatch = PartNumberRegex().Match(stem);
         var sequence = partMatch.Success && int.TryParse(partMatch.Groups[1].Value, CultureInfo.InvariantCulture, out var parsed)
@@ -54,8 +229,38 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
         var normalizedTitle = NormalizeKey(title);
         var groupKey = $"{NormalizeKey(parentPath)}|{normalizedTitle}";
 
-        return new ParsedCandidate(item, groupKey, author, title, sequence, partMatch.Success, metadata);
+        metadata ??= CreateInferredMetadata(item.FullPath, title, author);
+
+        return new ParsedCandidate(
+            item,
+            groupKey,
+            author,
+            title,
+            sequence,
+            partMatch.Success,
+            metadata,
+            metadataWasLoaded);
     }
+
+    private static LocalMediaMetadata CreateInferredMetadata(string filePath, string title, string? author) =>
+        new(
+            filePath,
+            new MetadataValue(title, MetadataValueSource.Inferred),
+            new MetadataValue(
+                author,
+                string.IsNullOrWhiteSpace(author) ? MetadataValueSource.None : MetadataValueSource.Inferred),
+            new MetadataValue(null, MetadataValueSource.None),
+            new MetadataValue(null, MetadataValueSource.None),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            false,
+            [],
+            []);
 
     private static (string? Author, string Title) ParseAuthorAndTitle(string cleanedStem, string relativePath)
     {
@@ -139,6 +344,7 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
             title,
             authorMetadata.Source,
             titleMetadata.Source,
+            ordered.All(candidate => candidate.MetadataWasLoaded),
             parts,
             confidence,
             warnings);
@@ -226,5 +432,6 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
         string Title,
         int Sequence,
         bool SequenceWasInferred,
-        LocalMediaMetadata Metadata);
+        LocalMediaMetadata Metadata,
+        bool MetadataWasLoaded);
 }

@@ -95,14 +95,38 @@ public sealed class LibraryScanServiceTests
         Assert.Equal(issue, result.Issues[0]);
     }
 
+    [Theory]
+    [InlineData(LibrarySourceType.Movies, ".mkv", ".mp3")]
+    [InlineData(LibrarySourceType.Music, ".flac", ".pdf")]
+    [InlineData(LibrarySourceType.Audiobooks, ".m4b", ".mkv")]
+    [InlineData(LibrarySourceType.Documents, ".epub", ".jpg")]
+    [InlineData(LibrarySourceType.Photos, ".heic", ".mp3")]
+    public async Task ScanAsync_AppliesSourceTypeExtensionAndDirectoryFilters(
+        LibrarySourceType sourceType,
+        string includedExtension,
+        string excludedExtension)
+    {
+        var source = CreateSource(sourceType);
+        var discovery = new FakeFileDiscoveryService(CreateEmptyDiscovery(source.Path));
+
+        await CreateService(source, new FakeMediaItemRepository([]), discovery).ScanAsync(source.Id);
+
+        var options = Assert.IsType<FileDiscoveryOptions>(discovery.LastOptions);
+        Assert.NotNull(options.IncludedExtensions);
+        Assert.Contains(includedExtension, options.IncludedExtensions);
+        Assert.DoesNotContain(excludedExtension, options.IncludedExtensions);
+        Assert.Contains("$RECYCLE.BIN", options.ExcludedDirectoryNames);
+        Assert.Contains("System Volume Information", options.ExcludedDirectoryNames);
+    }
+
     private static LibraryScanService CreateService(
         LibrarySource source,
         FakeMediaItemRepository repository,
         FakeFileDiscoveryService discovery) =>
         new(new FakeLibrarySourceRepository(source), repository, discovery);
 
-    private static LibrarySource CreateSource() =>
-        new("Test library", Path.Combine(Path.GetTempPath(), "Archivio.Tests", Guid.NewGuid().ToString("N")), LibrarySourceType.Mixed);
+    private static LibrarySource CreateSource(LibrarySourceType type = LibrarySourceType.Mixed) =>
+        new("Test library", Path.Combine(Path.GetTempPath(), "Archivio.Tests", Guid.NewGuid().ToString("N")), type);
 
     private static FileDiscoveryResult CreateEmptyDiscovery(string rootPath)
     {
@@ -113,10 +137,19 @@ public sealed class LibraryScanServiceTests
     private sealed class FakeFileDiscoveryService(FileDiscoveryResult result) : IFileDiscoveryService
     {
         public int CallCount { get; private set; }
+        public FileDiscoveryOptions? LastOptions { get; private set; }
 
         public Task<FileDiscoveryResult> DiscoverAsync(string rootPath, CancellationToken cancellationToken = default)
+            => DiscoverAsync(rootPath, FileDiscoveryOptions.Default, null, cancellationToken);
+
+        public Task<FileDiscoveryResult> DiscoverAsync(
+            string rootPath,
+            FileDiscoveryOptions options,
+            IProgress<FileDiscoveryProgress>? progress = null,
+            CancellationToken cancellationToken = default)
         {
             CallCount++;
+            LastOptions = options;
             return Task.FromResult(result);
         }
     }

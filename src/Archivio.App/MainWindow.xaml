@@ -126,7 +126,17 @@
                                     <TextBlock DockPanel.Dock="Right" Text="{Binding ScanStage}" Foreground="{StaticResource ArchivioAccent}" />
                                 </DockPanel>
                                 <TextBlock Text="{Binding ScanCurrentPath}" Foreground="#94A3B8" Margin="0,7,0,0" TextTrimming="CharacterEllipsis" />
-                                <ProgressBar Minimum="0" Maximum="{Binding ScanDiscoveredCount}" Value="{Binding ScanProcessedCount}" Height="8" Margin="0,9,0,0" />
+                                <ProgressBar Minimum="0" Maximum="{Binding ScanProgressMaximum}" Value="{Binding ScanProcessedCount}" Height="8" Margin="0,9,0,0">
+                                    <ProgressBar.Style>
+                                        <Style TargetType="ProgressBar">
+                                            <Setter Property="IsIndeterminate" Value="False" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding ScanStage}" Value="Starting"><Setter Property="IsIndeterminate" Value="True" /></DataTrigger>
+                                                <DataTrigger Binding="{Binding ScanStage}" Value="Discovering"><Setter Property="IsIndeterminate" Value="True" /></DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </ProgressBar.Style>
+                                </ProgressBar>
                                 <TextBlock Foreground="#CBD5E1" Margin="0,7,0,0" TextWrapping="Wrap">
                                     <Run Text="Discovered " /><Run Text="{Binding ScanDiscoveredCount, Mode=OneWay}" /><Run Text="  Added " /><Run Text="{Binding ScanAddedCount, Mode=OneWay}" />
                                     <Run Text="  Refreshed " /><Run Text="{Binding ScanRefreshedCount, Mode=OneWay}" /><Run Text="  Missing " /><Run Text="{Binding ScanMissingCount, Mode=OneWay}" />
@@ -143,13 +153,16 @@
 
             <Border Grid.Column="4" Background="{StaticResource ArchivioPanel}" CornerRadius="12" Padding="18">
                 <Grid>
-                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="10" /><RowDefinition Height="Auto" /><RowDefinition Height="12" /><RowDefinition Height="0.8*" /><RowDefinition Height="14" /><RowDefinition Height="1.2*" /></Grid.RowDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="10" /><RowDefinition Height="Auto" /><RowDefinition Height="8" /><RowDefinition Height="Auto" /><RowDefinition Height="10" /><RowDefinition Height="0.8*" /><RowDefinition Height="14" /><RowDefinition Height="1.2*" /></Grid.RowDefinitions>
                     <DockPanel>
                         <StackPanel>
                             <TextBlock Text="Audiobook review" Foreground="White" FontSize="19" FontWeight="SemiBold" />
                             <TextBlock Text="Read-only local metadata analysis" Foreground="#64748B" FontSize="11" Margin="0,3,0,0" />
                         </StackPanel>
-                        <Button DockPanel.Dock="Right" Content="Analyse" Command="{Binding AnalyseAudiobooksCommand}" Padding="13,7" VerticalAlignment="Center" />
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Content="Cancel" Command="{Binding CancelAudiobookAnalysisCommand}" Padding="13,7" Margin="0,0,8,0" />
+                            <Button Content="Analyse" Command="{Binding AnalyseAudiobooksCommand}" Padding="13,7" />
+                        </StackPanel>
                     </DockPanel>
                     <WrapPanel Grid.Row="2">
                         <TextBlock Foreground="#CBD5E1" Margin="0,0,14,0"><Run Text="{Binding AudiobookCandidateCount, Mode=OneWay}" /><Run Text=" candidates" /></TextBlock>
@@ -157,7 +170,17 @@
                         <TextBlock Foreground="#CBD5E1" Margin="0,0,14,0"><Run Text="{Binding SingleFileAudiobookCount, Mode=OneWay}" /><Run Text=" single" /></TextBlock>
                         <TextBlock Foreground="#F59E0B"><Run Text="{Binding AudiobooksNeedingReviewCount, Mode=OneWay}" /><Run Text=" need review" /></TextBlock>
                     </WrapPanel>
-                    <ListBox Grid.Row="4" ItemsSource="{Binding AudiobookCandidates}" SelectedItem="{Binding SelectedAudiobookCandidate}"
+                    <StackPanel Grid.Row="4">
+                        <DockPanel>
+                            <TextBlock Text="{Binding AudiobookAnalysisStatus}" Foreground="{StaticResource ArchivioAccent}" FontSize="11" TextTrimming="CharacterEllipsis" />
+                            <TextBlock DockPanel.Dock="Right" Foreground="#94A3B8" FontSize="10">
+                                <Run Text="{Binding AudiobookAnalysisProcessedCount, Mode=OneWay}" /><Run Text=" / " /><Run Text="{Binding AudiobookAnalysisTotalCount, Mode=OneWay}" />
+                            </TextBlock>
+                        </DockPanel>
+                        <ProgressBar Minimum="0" Maximum="{Binding AudiobookAnalysisProgressMaximum}" Value="{Binding AudiobookAnalysisProcessedCount}" Height="6" Margin="0,5,0,0" />
+                        <TextBlock Text="{Binding AudiobookAnalysisCurrentPath}" Foreground="#64748B" FontSize="10" Margin="0,4,0,0" TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                    <ListBox Grid.Row="6" ItemsSource="{Binding AudiobookCandidates}" SelectedItem="{Binding SelectedAudiobookCandidate}"
                              Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
@@ -168,6 +191,7 @@
                                             <TextBlock Text="{Binding AuthorDisplay}" Foreground="#94A3B8" FontSize="11" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{Binding Title}" Foreground="White" FontWeight="SemiBold" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{Binding TypeLabel}" Foreground="#64748B" FontSize="11" Margin="0,3,0,0" />
+                                            <TextBlock Text="{Binding MetadataStatusLabel}" Foreground="{StaticResource ArchivioAccent}" FontSize="10" Margin="0,2,0,0" />
                                             <TextBlock Text="{Binding MetadataProvenanceSummary}" Foreground="#64748B" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="1" Margin="10,0,0,0">
@@ -183,7 +207,7 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-                    <Border Grid.Row="6" Background="#0F172A" CornerRadius="8" Padding="13">
+                    <Border Grid.Row="8" Background="#0F172A" CornerRadius="8" Padding="13">
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <StackPanel DataContext="{Binding SelectedAudiobookCandidate}">
                                 <TextBlock Text="Candidate details" Foreground="White" FontWeight="SemiBold" />

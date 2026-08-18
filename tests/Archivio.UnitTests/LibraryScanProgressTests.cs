@@ -32,6 +32,10 @@ public sealed class LibraryScanProgressTests
         Assert.Equal(1, result.AddedCount);
         Assert.Equal(LibraryScanStage.Starting, progressValues.First().Stage);
         Assert.Contains(progressValues, value => value.Stage == LibraryScanStage.Discovering);
+        Assert.Contains(progressValues, value =>
+            value.Stage == LibraryScanStage.Discovering &&
+            value.DiscoveredCount == 1 &&
+            value.CurrentPath == file.FullPath);
         Assert.Contains(progressValues, value => value.Stage == LibraryScanStage.Reconciling && value.ProcessedCount == 1);
         Assert.Contains(progressValues, value => value.Stage == LibraryScanStage.Saving);
         var completed = Assert.Single(progressValues, value => value.Stage == LibraryScanStage.Completed);
@@ -47,7 +51,17 @@ public sealed class LibraryScanProgressTests
     private sealed class DiscoveryService(FileDiscoveryResult result) : IFileDiscoveryService
     {
         public Task<FileDiscoveryResult> DiscoverAsync(string rootPath, CancellationToken cancellationToken = default) =>
-            Task.FromResult(result);
+            DiscoverAsync(rootPath, FileDiscoveryOptions.Default, null, cancellationToken);
+
+        public Task<FileDiscoveryResult> DiscoverAsync(
+            string rootPath,
+            FileDiscoveryOptions options,
+            IProgress<FileDiscoveryProgress>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            progress?.Report(new FileDiscoveryProgress(result.Files[0].FullPath, result.Files.Count, 2, 0));
+            return Task.FromResult(result);
+        }
     }
 
     private sealed class SourceRepository(LibrarySource source) : ILibrarySourceRepository
