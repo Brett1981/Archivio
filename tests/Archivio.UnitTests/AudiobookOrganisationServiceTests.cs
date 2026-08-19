@@ -342,7 +342,7 @@ public sealed class AudiobookOrganisationServiceTests
         var sourceId = Guid.NewGuid();
         var candidate = CreateCandidate(
             sourceId,
-            "Bliss To You - 01 of 01",
+            "Dean Koontz - Bliss To You - Trixie's Guide to a Happy Life - 01 of 01",
             "Dean Koontz",
             confidence: 1m,
             genre: "Fiction",
@@ -352,7 +352,7 @@ public sealed class AudiobookOrganisationServiceTests
         var result = await service.PrepareProposalsAsync(sourceId, [candidate]);
 
         var proposal = Assert.IsType<AudiobookOrganisationProposal>(Assert.Single(result).OrganisationProposal);
-        Assert.Equal("Bliss To You", proposal.CanonicalTitle);
+        Assert.Equal("Bliss To You - Trixie's Guide to a Happy Life", proposal.CanonicalTitle);
         Assert.True(proposal.ReadyForAutomaticHandling);
     }
 

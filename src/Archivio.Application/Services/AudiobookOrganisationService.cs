@@ -8,7 +8,7 @@ namespace Archivio.Application.Services;
 public sealed partial class AudiobookOrganisationService(
     IAudiobookOrganisationStore organisationStore) : IAudiobookOrganisationService
 {
-    private const string ProposalAlgorithmVersion = "audiobook-organisation-v5";
+    private const string ProposalAlgorithmVersion = "audiobook-organisation-v6";
     private static readonly HashSet<string> ReservedWindowsNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "CON", "PRN", "AUX", "NUL",
@@ -273,12 +273,14 @@ public sealed partial class AudiobookOrganisationService(
                                        hasSegmentTitles && !explicitlyCompleteSingleFile;
         var hasCompleteSequence = HasCompleteTrackSequence(candidates);
         var requiresReview = requiresCompleteSequence && !hasCompleteSequence;
+        var canonicalAuthor = SelectCanonicalAuthor(candidates, null);
+        var canonicalTitle = explicitlyCompleteSingleFile
+            ? OnlineMetadataLookupService.PrepareLookupTitle(candidates[0].Title, candidates[0].Author)
+            : OnlineMetadataLookupService.PrepareLookupTitle(albumTitle, canonicalAuthor);
 
         return new ResolvedBookIdentity(
-            SelectCanonicalAuthor(candidates, null),
-            OnlineMetadataLookupService.PrepareLookupTitle(
-                albumTitle,
-                SelectCanonicalAuthor(candidates, null)),
+            canonicalAuthor,
+            canonicalTitle,
             requiresReview,
             true,
             "Canonical book title came from consistent embedded album metadata.",

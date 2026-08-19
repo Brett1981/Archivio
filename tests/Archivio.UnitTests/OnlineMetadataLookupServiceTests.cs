@@ -171,6 +171,10 @@ public sealed class OnlineMetadataLookupServiceTests
     [InlineData("Blue Gold (read by Michael Pritchard)", "Clive Cussler", "Blue Gold")]
     [InlineData("1989 - Hyperion (Foushee) 64k 17.03.25 {477mb}", "Dan Simmons", "Hyperion")]
     [InlineData("Dean Koontz - Darkfall (Unabridged)", "Dean Koontz", "Darkfall")]
+    [InlineData(
+        "Dean Koontz - Bliss To You - Trixie's Guide to a Happy Life - 01 of 01",
+        "Dean Koontz",
+        "Bliss To You - Trixie's Guide to a Happy Life")]
     public async Task EnrichCandidates_RemovesAudiobookFilenameNoiseBeforeSearching(
         string title,
         string author,

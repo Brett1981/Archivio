@@ -225,7 +225,7 @@ public sealed partial class OnlineMetadataLookupService(
     [GeneratedRegex(@"\s+\d{2,3}k?\s+\d{1,2}(?:[.:]\d{2}){2}\s*$", RegexOptions.IgnoreCase)]
     private static partial Regex EncodingDurationRegex();
 
-    [GeneratedRegex(@"\s*(?:\(\s*\d+\s*(?:of|/)\s*\d+\s*\)|\d+\s*--\s*\d+|\d{1,4}\s*-\s*(?:end|\d{1,4})|(?:part|disc|cd|track)\s*\d+(?:\s*(?:of|/)\s*\d+)?)\s*$", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\s*(?:\(\s*\d+\s*(?:of|/)\s*\d+\s*\)|\d+\s*(?:of|/)\s*\d+|\d+\s*--\s*\d+|\d{1,4}\s*-\s*(?:end|\d{1,4})|(?:part|disc|cd|track)\s*\d+(?:\s*(?:of|/)\s*\d+)?)\s*$", RegexOptions.IgnoreCase)]
     private static partial Regex TrailingPartMarkerRegex();
 
     [GeneratedRegex(@"\s+(?:18|19|20)\d{2}\s*$")]
