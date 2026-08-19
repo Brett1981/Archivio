@@ -270,6 +270,55 @@ public sealed class AudiobookBatchPlanningServiceTests
             });
     }
 
+    [Fact]
+    public async Task PrepareBatch_BlocksConsolidationWithoutACompleteTrackSequence()
+    {
+        var first = CreateCandidate(
+            "plan-1",
+            "Author",
+            "Book",
+            ready: true,
+            sourceFile: "First.mp3",
+            trackNumber: 10);
+        var second = CreateCandidate(
+            "plan-1",
+            "Author",
+            "Book",
+            ready: true,
+            sourceFile: "Duplicate.mp3",
+            sourceId: first.SourceId,
+            root: first.Root,
+            trackNumber: 10);
+        var primaryProposal = first.Candidate.OrganisationProposal! with
+        {
+            RecommendedAction = AudiobookOrganisationAction.ConsolidateCandidates,
+            RelatedCandidateCount = 2,
+            SourceFileCount = 2,
+            SuggestedFileNamePattern = "001 - Book{original extension}"
+        };
+        var candidates = new[]
+        {
+            first.Candidate with { OrganisationProposal = primaryProposal },
+            second.Candidate with
+            {
+                OrganisationProposal = primaryProposal with { IsPrimaryCandidate = false }
+            }
+        };
+        var service = new AudiobookBatchPlanningService(new StubDecisionStore());
+
+        var result = await service.PrepareBatchAsync(
+            first.SourceId,
+            first.Root,
+            candidates,
+            [first.Item, second.Item]);
+
+        var plan = Assert.IsType<AudiobookBatchPlan>(result[0].BatchPlan);
+        Assert.Equal(AudiobookBatchValidationStatus.Conflict, plan.ValidationStatus);
+        Assert.Contains(
+            plan.Warnings,
+            warning => warning.Contains("complete, unique embedded track sequence", StringComparison.Ordinal));
+    }
+
     private static CandidateFixture CreateCandidate(
         string planKey,
         string author,

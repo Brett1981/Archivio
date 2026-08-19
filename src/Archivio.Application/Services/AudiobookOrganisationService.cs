@@ -8,7 +8,7 @@ namespace Archivio.Application.Services;
 public sealed partial class AudiobookOrganisationService(
     IAudiobookOrganisationStore organisationStore) : IAudiobookOrganisationService
 {
-    private const string ProposalAlgorithmVersion = "audiobook-organisation-v4";
+    private const string ProposalAlgorithmVersion = "audiobook-organisation-v5";
     private static readonly HashSet<string> ReservedWindowsNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "CON", "PRN", "AUX", "NUL",
@@ -216,7 +216,16 @@ public sealed partial class AudiobookOrganisationService(
             .FirstOrDefault(identity => identity is not null);
         if (bookFolderIdentity is not null)
         {
-            return bookFolderIdentity;
+            var requiresCompleteSequence = candidates.Count > 1 ||
+                                           candidates.Any(candidate => IsSegmentTitle(candidate.Title));
+            var requiresReview = requiresCompleteSequence && !HasCompleteTrackSequence(candidates);
+            return requiresReview
+                ? bookFolderIdentity with
+                {
+                    RequiresReview = true,
+                    Warning = "The folder-derived book does not provide one complete, unique track sequence from 1 to the total file count."
+                }
+                : bookFolderIdentity;
         }
 
         return new ResolvedBookIdentity(
@@ -256,15 +265,26 @@ public sealed partial class AudiobookOrganisationService(
             return null;
         }
 
+        var hasSegmentTitles = candidates.Any(candidate => IsSegmentTitle(candidate.Title));
+        var explicitlyCompleteSingleFile = candidates.Count == 1 &&
+                                           candidates[0].Parts.Count == 1 &&
+                                           ExplicitCompleteSingleFileRegex().IsMatch(candidates[0].Title);
+        var requiresCompleteSequence = candidates.Count > 1 ||
+                                       hasSegmentTitles && !explicitlyCompleteSingleFile;
+        var hasCompleteSequence = HasCompleteTrackSequence(candidates);
+        var requiresReview = requiresCompleteSequence && !hasCompleteSequence;
+
         return new ResolvedBookIdentity(
             SelectCanonicalAuthor(candidates, null),
             OnlineMetadataLookupService.PrepareLookupTitle(
                 albumTitle,
                 SelectCanonicalAuthor(candidates, null)),
-            false,
+            requiresReview,
             true,
             "Canonical book title came from consistent embedded album metadata.",
-            null);
+            requiresReview
+                ? "The files do not provide one complete, unique track sequence from 1 to the total file count."
+                : null);
     }
 
     private static ResolvedBookIdentity? TryResolveBookIdentityFromFolder(
@@ -378,6 +398,19 @@ public sealed partial class AudiobookOrganisationService(
         return directory.Split(
             [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
             StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Reverse();
+    }
+
+    private static bool HasCompleteTrackSequence(
+        IReadOnlyList<AudiobookCandidateGroup> candidates)
+    {
+        var trackNumbers = candidates
+            .SelectMany(candidate => candidate.Parts)
+            .Select(part => part.Metadata.TrackNumber)
+            .ToList();
+        return trackNumbers.Count > 0 &&
+               trackNumbers.All(number => number is not null) &&
+               trackNumbers.Select(number => number!.Value).Order().SequenceEqual(
+                   Enumerable.Range(1, trackNumbers.Count).Select(number => (uint)number));
     }
 
     private static string SelectCanonicalAuthor(
@@ -668,6 +701,9 @@ public sealed partial class AudiobookOrganisationService(
 
     [GeneratedRegex(@"^(?:audio\s*book|audiobook|book|unknown|untitled|various)$", RegexOptions.IgnoreCase)]
     private static partial Regex GenericCollectionTitleRegex();
+
+    [GeneratedRegex(@"(?:^|\s[-–—:]?\s*)0*1\s*(?:of|/)\s*0*1\s*$", RegexOptions.IgnoreCase)]
+    private static partial Regex ExplicitCompleteSingleFileRegex();
 
     [GeneratedRegex(@"^\s*\d{1,3}\s+(?<title>.+?)\s*$")]
     private static partial Regex NumberedBookLabelRegex();

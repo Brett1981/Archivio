@@ -9,7 +9,7 @@ namespace Archivio.Application.Services;
 public sealed partial class AudiobookBatchPlanningService(
     IAudiobookBatchDecisionStore decisionStore) : IAudiobookBatchPlanningService
 {
-    private const string BatchAlgorithmVersion = "audiobook-batch-v2";
+    private const string BatchAlgorithmVersion = "audiobook-batch-v3";
 
     public async Task<IReadOnlyList<AudiobookCandidateGroup>> PrepareBatchAsync(
         Guid librarySourceId,
@@ -138,11 +138,12 @@ public sealed partial class AudiobookBatchPlanningService(
             .GroupBy(part => part.MediaItem.Id)
             .Select(group => group.First())
             .ToList();
-        var hasReliableTrackOrder = uniqueParts.All(part => part.Metadata.TrackNumber is not null) &&
+        var hasCompleteTrackOrder = uniqueParts.All(part => part.Metadata.TrackNumber is not null) &&
                                     uniqueParts.Select(part => part.Metadata.TrackNumber!.Value)
-                                        .Distinct()
-                                        .Count() == uniqueParts.Count;
-        var parts = (hasReliableTrackOrder
+                                        .Order()
+                                        .SequenceEqual(
+                                            Enumerable.Range(1, uniqueParts.Count).Select(number => (uint)number));
+        var parts = (hasCompleteTrackOrder
                 ? uniqueParts.OrderBy(part => part.Metadata.TrackNumber!.Value)
                     .ThenBy(part => part.MediaItem.RelativePath, StringComparer.OrdinalIgnoreCase)
                 : uniqueParts.OrderBy(part => part.MediaItem.RelativePath, StringComparer.OrdinalIgnoreCase)
@@ -150,6 +151,12 @@ public sealed partial class AudiobookBatchPlanningService(
             .ToList();
         var sourceIds = parts.Select(part => part.MediaItem.Id).ToHashSet();
         var warnings = new List<string>();
+        if (proposal.RecommendedAction == AudiobookOrganisationAction.ConsolidateCandidates &&
+            !hasCompleteTrackOrder)
+        {
+            warnings.Add(
+                "Consolidated candidates require one complete, unique embedded track sequence from 1 to the total file count.");
+        }
         var operations = new List<AudiobookFileOperation>(parts.Count);
 
         for (var index = 0; index < parts.Count; index++)

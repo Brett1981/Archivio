@@ -240,20 +240,34 @@ public sealed class AudiobookOrganisationServiceTests
     public async Task PrepareProposals_UsesAuthorBookFolderWhenAlbumIsOnlyADiscNumber()
     {
         var sourceId = Guid.NewGuid();
-        var candidate = CreateCandidate(
-            sourceId,
-            "Chapter One",
-            "Roald Dahl",
-            confidence: 1m,
-            relativeDirectory: Path.Combine("Roald Dahl", "Roald Dahl - Esio Trot"),
-            genre: "Children",
-            album: "6",
-            trackNumber: 1);
+        var bookFolder = Path.Combine("Roald Dahl", "Roald Dahl - Esio Trot");
+        var candidates = new[]
+        {
+            CreateCandidate(
+                sourceId,
+                "Chapter One",
+                "Roald Dahl",
+                confidence: 1m,
+                relativeDirectory: bookFolder,
+                genre: "Children",
+                album: "6",
+                trackNumber: 1),
+            CreateCandidate(
+                sourceId,
+                "Chapter Two",
+                "Roald Dahl",
+                confidence: 1m,
+                relativeDirectory: bookFolder,
+                genre: "Children",
+                album: "6",
+                trackNumber: 2)
+        };
         var service = new AudiobookOrganisationService(new StubOrganisationStore());
 
-        var result = await service.PrepareProposalsAsync(sourceId, [candidate]);
+        var result = await service.PrepareProposalsAsync(sourceId, candidates);
 
-        var proposal = Assert.IsType<AudiobookOrganisationProposal>(Assert.Single(result).OrganisationProposal);
+        var primary = Assert.Single(result, candidate => candidate.IsPrimaryOrganisationPlan);
+        var proposal = Assert.IsType<AudiobookOrganisationProposal>(primary.OrganisationProposal);
         Assert.Equal("Roald Dahl", proposal.CanonicalAuthor);
         Assert.Equal("Esio Trot", proposal.CanonicalTitle);
         Assert.Equal(
@@ -261,6 +275,85 @@ public sealed class AudiobookOrganisationServiceTests
             proposal.SuggestedRelativeFolder);
         Assert.True(proposal.ReadyForAutomaticHandling);
         Assert.Contains(proposal.Reasons, reason => reason.Contains("author/book folder", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task PrepareProposals_BlocksAnIsolatedChapterEvenWhenAlbumIdentifiesTheBook()
+    {
+        var sourceId = Guid.NewGuid();
+        var candidate = CreateCandidate(
+            sourceId,
+            "Chapter Eleven",
+            "Roald Dahl",
+            confidence: 1m,
+            genre: "Children",
+            album: "Charlie and the Chocolate Factory",
+            trackNumber: 11);
+        var service = new AudiobookOrganisationService(new StubOrganisationStore());
+
+        var result = await service.PrepareProposalsAsync(sourceId, [candidate]);
+
+        var proposal = Assert.IsType<AudiobookOrganisationProposal>(Assert.Single(result).OrganisationProposal);
+        Assert.Equal("Charlie and the Chocolate Factory", proposal.CanonicalTitle);
+        Assert.False(proposal.ReadyForAutomaticHandling);
+        Assert.Contains(
+            proposal.Warnings,
+            warning => warning.Contains("complete, unique track sequence", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task PrepareProposals_BlocksAlbumConsolidationWithANonContiguousTrackSequence()
+    {
+        var sourceId = Guid.NewGuid();
+        var candidates = new[]
+        {
+            CreateCandidate(
+                sourceId,
+                "The Cow",
+                "Roald Dahl",
+                confidence: 1m,
+                genre: "Children",
+                album: "Revolting Rhymes And Dirty Beasts",
+                trackNumber: 7),
+            CreateCandidate(
+                sourceId,
+                "The Pig",
+                "Roald Dahl",
+                confidence: 1m,
+                genre: "Children",
+                album: "Revolting Rhymes And Dirty Beasts",
+                trackNumber: 8)
+        };
+        var service = new AudiobookOrganisationService(new StubOrganisationStore());
+
+        var result = await service.PrepareProposalsAsync(sourceId, candidates);
+
+        var primary = Assert.Single(result, candidate => candidate.IsPrimaryOrganisationPlan);
+        var proposal = Assert.IsType<AudiobookOrganisationProposal>(primary.OrganisationProposal);
+        Assert.False(proposal.ReadyForAutomaticHandling);
+        Assert.Contains(
+            proposal.Warnings,
+            warning => warning.Contains("complete, unique track sequence", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task PrepareProposals_AllowsAnExplicitOneOfOneAlbumIdentityWithoutATrackTag()
+    {
+        var sourceId = Guid.NewGuid();
+        var candidate = CreateCandidate(
+            sourceId,
+            "Bliss To You - 01 of 01",
+            "Dean Koontz",
+            confidence: 1m,
+            genre: "Fiction",
+            album: "Bliss To You");
+        var service = new AudiobookOrganisationService(new StubOrganisationStore());
+
+        var result = await service.PrepareProposalsAsync(sourceId, [candidate]);
+
+        var proposal = Assert.IsType<AudiobookOrganisationProposal>(Assert.Single(result).OrganisationProposal);
+        Assert.Equal("Bliss To You", proposal.CanonicalTitle);
+        Assert.True(proposal.ReadyForAutomaticHandling);
     }
 
     [Theory]
@@ -409,8 +502,8 @@ public sealed class AudiobookOrganisationServiceTests
                     new MetadataValue(
                         genre,
                         genre is null ? MetadataValueSource.None : MetadataValueSource.EmbeddedTag),
-                    trackNumber is null ? null : trackNumber + (uint)(index - 1),
                     null,
+                    trackNumber is null ? null : trackNumber + (uint)(index - 1),
                     null,
                     null,
                     null,
