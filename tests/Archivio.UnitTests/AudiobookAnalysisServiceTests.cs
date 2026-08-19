@@ -44,6 +44,65 @@ public sealed class AudiobookAnalysisServiceTests
     }
 
     [Fact]
+    public void Analyse_UsesEmbeddedTrackNumbersForMultipartOrdering()
+    {
+        var sourceId = Guid.NewGuid();
+        var trackTwo = CreateItem(sourceId, "Author/Book/a.mp3");
+        var trackOne = CreateItem(sourceId, "Author/Book/z.mp3");
+        var metadataService = new StubLocalMediaMetadataService(path => CreateMetadata(
+            path,
+            album: new MetadataValue("Book", MetadataValueSource.EmbeddedTag),
+            trackNumber: path == trackOne.FullPath ? 1u : 2u));
+        var service = new AudiobookAnalysisService(metadataService);
+
+        var group = Assert.Single(service.Analyse([trackTwo, trackOne]));
+
+        Assert.Equal([trackOne.Id, trackTwo.Id], group.Parts.Select(part => part.MediaItem.Id));
+        Assert.All(group.Parts, part => Assert.True(part.SequenceWasInferred));
+        Assert.DoesNotContain(group.Warnings, warning => warning.Contains("part numbers", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Analyse_UsesUnanimousEmbeddedAlbumAsMultipartBookTitle()
+    {
+        var sourceId = Guid.NewGuid();
+        var opening = CreateItem(sourceId, "Author/Book/opening.mp3");
+        var conclusion = CreateItem(sourceId, "Author/Book/conclusion.mp3");
+        var metadataService = new StubLocalMediaMetadataService(path => CreateMetadata(
+            path,
+            new MetadataValue(
+                path == opening.FullPath ? "Opening" : "Conclusion",
+                MetadataValueSource.EmbeddedTag),
+            new MetadataValue("Author", MetadataValueSource.EmbeddedTag),
+            new MetadataValue("Book", MetadataValueSource.EmbeddedTag),
+            path == opening.FullPath ? 1u : 2u));
+        var service = new AudiobookAnalysisService(metadataService);
+
+        var group = Assert.Single(service.Analyse([conclusion, opening]));
+
+        Assert.Equal("Book", group.Title);
+        Assert.Equal(MetadataValueSource.EmbeddedTag, group.TitleSource);
+        Assert.DoesNotContain(group.Warnings, warning => warning.Contains("Title metadata differs", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("001 - Book.mp3", "002 - Book.mp3")]
+    [InlineData("Chapter 01.mp3", "Chapter 02.mp3")]
+    public void Analyse_RecognizesCommonNumberedMultipartFilenames(string firstName, string secondName)
+    {
+        var sourceId = Guid.NewGuid();
+        var first = CreateItem(sourceId, $"Author/Book/{firstName}");
+        var second = CreateItem(sourceId, $"Author/Book/{secondName}");
+        var service = CreateService();
+
+        var group = Assert.Single(service.Analyse([second, first]));
+
+        Assert.Equal([first.Id, second.Id], group.Parts.Select(part => part.MediaItem.Id));
+        Assert.All(group.Parts, part => Assert.True(part.SequenceWasInferred));
+        Assert.Empty(group.Warnings);
+    }
+
+    [Fact]
     public void Analyse_UsesFolderStructureWhenFilenameHasNoAuthorTitleSeparator()
     {
         var sourceId = Guid.NewGuid();
@@ -376,15 +435,17 @@ public sealed class AudiobookAnalysisServiceTests
         string path,
         MetadataValue? title = null,
         MetadataValue? author = null,
+        MetadataValue? album = null,
+        uint? trackNumber = null,
         IReadOnlyList<string>? warnings = null) =>
         new(
             path,
             title ?? new MetadataValue(null, MetadataValueSource.None),
             author ?? new MetadataValue(null, MetadataValueSource.None),
-            new MetadataValue(null, MetadataValueSource.None),
+            album ?? new MetadataValue(null, MetadataValueSource.None),
             new MetadataValue(null, MetadataValueSource.None),
             null,
-            null,
+            trackNumber,
             null,
             null,
             null,

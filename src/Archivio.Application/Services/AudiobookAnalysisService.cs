@@ -464,13 +464,21 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
         bool metadataWasLoaded = false)
     {
         var stem = Path.GetFileNameWithoutExtension(item.FileName).Trim();
-        var partMatch = PartNumberRegex().Match(stem);
-        var sequence = partMatch.Success && int.TryParse(partMatch.Groups[1].Value, CultureInfo.InvariantCulture, out var parsed)
+        var sequenceMatch = FindSequenceMatch(stem);
+        var filenameSequence = sequenceMatch.Success &&
+                               int.TryParse(sequenceMatch.Groups[1].Value, CultureInfo.InvariantCulture, out var parsed) &&
+                               parsed > 0
             ? parsed
             : 0;
+        var trackNumber = metadata?.TrackNumber;
+        var metadataSequence = trackNumber is > 0 and <= int.MaxValue
+            ? (int)trackNumber.Value
+            : 0;
+        var sequence = metadataSequence > 0 ? metadataSequence : filenameSequence;
+        var sequenceWasInferred = metadataSequence > 0 || filenameSequence > 0;
 
-        var cleanedStem = partMatch.Success
-            ? NormalizeWhitespace(stem.Remove(partMatch.Index, partMatch.Length).Trim(' ', '-', '_', '.'))
+        var cleanedStem = sequenceMatch.Success
+            ? NormalizeWhitespace(stem.Remove(sequenceMatch.Index, sequenceMatch.Length).Trim(' ', '-', '_', '.'))
             : NormalizeWhitespace(stem);
 
         var (author, title) = ParseAuthorAndTitle(cleanedStem, item.RelativePath);
@@ -486,7 +494,7 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
             author,
             title,
             sequence,
-            partMatch.Success,
+            sequenceWasInferred,
             metadata,
             metadataWasLoaded);
     }
@@ -570,8 +578,9 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
         var fallbackTitle = new MetadataValue(first.Title, MetadataValueSource.Inferred);
         var authorMetadata = SelectGroupMetadataValue(
             ordered.Select(candidate => candidate.Metadata.Author), fallbackAuthor, "Author", warnings);
-        var titleMetadata = SelectGroupMetadataValue(
-            ordered.Select(candidate => candidate.Metadata.Title), fallbackTitle, "Title", warnings);
+        var titleMetadata = SelectConsistentMultipartAlbum(ordered) ??
+                            SelectGroupMetadataValue(
+                                ordered.Select(candidate => candidate.Metadata.Title), fallbackTitle, "Title", warnings);
         var author = authorMetadata.Value;
         var title = titleMetadata.Value ?? first.Title;
 
@@ -597,6 +606,38 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
             parts,
             confidence,
             warnings);
+    }
+
+    private static Match FindSequenceMatch(string stem)
+    {
+        var match = PartNumberRegex().Match(stem);
+        if (match.Success)
+        {
+            return match;
+        }
+
+        match = ChapterNumberRegex().Match(stem);
+        return match.Success ? match : LeadingSequenceRegex().Match(stem);
+    }
+
+    private static MetadataValue? SelectConsistentMultipartAlbum(IReadOnlyCollection<ParsedCandidate> candidates)
+    {
+        if (candidates.Count <= 1 || candidates.Any(candidate => !candidate.Metadata.Album.HasValue))
+        {
+            return null;
+        }
+
+        var albums = candidates
+            .Select(candidate => candidate.Metadata.Album)
+            .GroupBy(album => album.Value!.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (albums.Count != 1)
+        {
+            return null;
+        }
+
+        var album = albums[0].OrderBy(value => GetSourcePriority(value.Source)).First();
+        return album with { Value = album.Value!.Trim() };
     }
 
     private static MetadataValue SelectGroupMetadataValue(
@@ -667,6 +708,12 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
 
     [GeneratedRegex(@"(?i)(?:^|[\s._-])(?:part|pt|cd|disc|disk)[\s._-]*(\d{1,4})(?:$|[\s._-])")]
     private static partial Regex PartNumberRegex();
+
+    [GeneratedRegex(@"(?i)(?:^|[\s._-])(?:chapter|ch)[\s._-]*(\d{1,4})(?:$|[\s._-])")]
+    private static partial Regex ChapterNumberRegex();
+
+    [GeneratedRegex(@"^\s*(\d{1,3})(?=[\s._-])[\s._-]*")]
+    private static partial Regex LeadingSequenceRegex();
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex WhitespaceRegex();
