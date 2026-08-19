@@ -1,8 +1,11 @@
 <Window x:Class="Archivio.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="{Binding Title}" Width="1540" Height="900" MinWidth="1200" MinHeight="720"
-        WindowStartupLocation="CenterScreen" Background="{StaticResource ArchivioBackground}">
+        Title="{Binding Title}" Width="1360" Height="820" MinWidth="1180" MinHeight="700"
+        WindowStartupLocation="CenterScreen" Background="{StaticResource MetaroqBackground}"
+        Foreground="{StaticResource MetaroqText}" FontFamily="Segoe UI"
+        Icon="Assets/Branding/metaroq-icon.png"
+        PreviewKeyDown="HandleWindowPreviewKeyDown">
     <Grid Margin="28">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -11,12 +14,36 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <StackPanel>
-            <TextBlock Text="ARCHIVIO" Foreground="{StaticResource ArchivioAccent}" FontSize="14" FontWeight="Bold" />
-            <TextBlock Text="Library catalogue" Foreground="White" FontSize="32" FontWeight="SemiBold" Margin="0,6,0,0" />
-            <TextBlock Text="Scan safely, review audiobook candidates, and prepare an organised library."
-                       Foreground="#9CA3AF" FontSize="15" Margin="0,6,0,0" />
-        </StackPanel>
+        <Grid>
+            <Grid.Style>
+                <Style TargetType="Grid">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsReviewFocusMode}" Value="True">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Grid.Style>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="14" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Image Width="52" Height="52" Source="Assets/Branding/metaroq-icon.png" Stretch="Uniform" />
+            <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                <TextBlock Text="Metaroq" Foreground="{StaticResource MetaroqText}" FontSize="28" FontWeight="SemiBold" />
+                <TextBlock Foreground="{StaticResource MetaroqMutedText}" FontSize="12" Margin="1,2,0,0">
+                    <Run Text="Media that " /><Run Text="finally" Foreground="{StaticResource MetaroqAqua}" /><Run Text=" makes sense." />
+                </TextBlock>
+            </StackPanel>
+            <StackPanel Grid.Column="4" VerticalAlignment="Center" HorizontalAlignment="Right">
+                <TextBlock Text="Library catalogue" Foreground="{StaticResource MetaroqText}" FontSize="27" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                <TextBlock Text="Scan safely, understand every file, and prepare an organised library."
+                           Foreground="{StaticResource MetaroqMutedText}" FontSize="13" Margin="0,4,0,0" HorizontalAlignment="Right" />
+            </StackPanel>
+        </Grid>
 
         <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
@@ -27,7 +54,16 @@
                 <ColumnDefinition Width="1.15*" />
             </Grid.ColumnDefinitions>
 
-            <Border Background="{StaticResource ArchivioPanel}" CornerRadius="12" Padding="18">
+            <Border Background="{StaticResource MetaroqPanel}" BorderBrush="{StaticResource MetaroqBorder}" BorderThickness="1" CornerRadius="12" Padding="18">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsReviewFocusMode}" Value="True">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -48,11 +84,11 @@
                              Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <Border Background="#0F172A" CornerRadius="8" Padding="12" Margin="0,0,0,8">
+                                <Border Background="{StaticResource MetaroqSurface}" CornerRadius="8" Padding="12" Margin="0,0,0,8">
                                     <StackPanel>
                                         <TextBlock Text="{Binding Name}" Foreground="White" FontWeight="SemiBold" />
                                         <TextBlock Text="{Binding Path}" Foreground="#94A3B8" Margin="0,4,0,0" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Text="{Binding Type}" Foreground="{StaticResource ArchivioAccent}" Margin="0,4,0,0" FontSize="11" />
+                                        <TextBlock Text="{Binding Type}" Foreground="{StaticResource MetaroqAqua}" Margin="0,4,0,0" FontSize="11" />
                                     </StackPanel>
                                 </Border>
                             </DataTemplate>
@@ -74,7 +110,7 @@
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <Border Background="#0F172A" CornerRadius="7" Padding="10" Margin="0,0,0,7">
+                                <Border Background="{StaticResource MetaroqSurface}" CornerRadius="7" Padding="10" Margin="0,0,0,7">
                                     <Grid>
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                         <StackPanel>
@@ -82,7 +118,7 @@
                                             <TextBlock Text="{Binding RelativePath}" Foreground="#94A3B8" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="1" Margin="12,0,0,0" HorizontalAlignment="Right">
-                                            <TextBlock Text="{Binding Extension}" Foreground="{StaticResource ArchivioAccent}" HorizontalAlignment="Right" />
+                                            <TextBlock Text="{Binding Extension}" Foreground="{StaticResource MetaroqAqua}" HorizontalAlignment="Right" />
                                             <TextBlock Text="Missing" Foreground="#F59E0B" FontSize="11" Margin="0,3,0,0">
                                                 <TextBlock.Style>
                                                     <Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" />
@@ -99,7 +135,16 @@
                 </Grid>
             </Border>
 
-            <Border Grid.Column="2" Background="{StaticResource ArchivioPanel}" CornerRadius="12" Padding="18">
+            <Border Grid.Column="2" Background="{StaticResource MetaroqPanel}" BorderBrush="{StaticResource MetaroqBorder}" BorderThickness="1" CornerRadius="12" Padding="18">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsReviewFocusMode}" Value="True">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel>
                         <TextBlock Text="Source details" Foreground="White" FontSize="19" FontWeight="SemiBold" />
@@ -117,13 +162,13 @@
                         <Grid Margin="0,16,0,0">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <Button Content="Delete" Command="{Binding DeleteCommand}" Padding="14,8" />
-                            <Button Grid.Column="1" Content="Save source" Command="{Binding SaveCommand}" Padding="14,8" HorizontalAlignment="Right" />
+                            <Button Grid.Column="1" Content="Save source" Command="{Binding SaveCommand}" Style="{StaticResource MetaroqPrimaryButtonStyle}" Padding="14,8" HorizontalAlignment="Right" />
                         </Grid>
-                        <Border Background="#0F172A" CornerRadius="8" Padding="13" Margin="0,20,0,0">
+                        <Border Background="{StaticResource MetaroqSurface}" CornerRadius="8" Padding="13" Margin="0,20,0,0">
                             <StackPanel>
-                                <DockPanel>
+                                <DockPanel LastChildFill="True">
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding ScanStage}" Foreground="{StaticResource MetaroqAqua}" Margin="12,0,0,0" />
                                     <TextBlock Text="Scan catalogue" Foreground="White" FontWeight="SemiBold" />
-                                    <TextBlock DockPanel.Dock="Right" Text="{Binding ScanStage}" Foreground="{StaticResource ArchivioAccent}" />
                                 </DockPanel>
                                 <TextBlock Text="{Binding ScanCurrentPath}" Foreground="#94A3B8" Margin="0,7,0,0" TextTrimming="CharacterEllipsis" />
                                 <ProgressBar Minimum="0" Maximum="{Binding ScanProgressMaximum}" Value="{Binding ScanProcessedCount}" Height="8" Margin="0,9,0,0">
@@ -143,7 +188,7 @@
                                 </TextBlock>
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
                                     <Button Content="Cancel" Command="{Binding CancelScanCommand}" Padding="12,6" />
-                                    <Button Content="Scan now" Command="{Binding StartScanCommand}" Padding="12,6" Margin="8,0,0,0" />
+                                    <Button Content="Scan now" Command="{Binding StartScanCommand}" Style="{StaticResource MetaroqPrimaryButtonStyle}" Padding="12,6" Margin="8,0,0,0" />
                                 </StackPanel>
                             </StackPanel>
                         </Border>
@@ -151,34 +196,92 @@
                 </ScrollViewer>
             </Border>
 
-            <Border Grid.Column="4" Background="{StaticResource ArchivioPanel}" CornerRadius="12" Padding="18">
-                <Grid>
-                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="10" /><RowDefinition Height="Auto" /><RowDefinition Height="8" /><RowDefinition Height="Auto" /><RowDefinition Height="10" /><RowDefinition Height="0.8*" /><RowDefinition Height="14" /><RowDefinition Height="1.2*" /></Grid.RowDefinitions>
-                    <DockPanel>
-                        <StackPanel>
-                            <TextBlock Text="Audiobook review" Foreground="White" FontSize="19" FontWeight="SemiBold" />
-                            <TextBlock Text="Read-only local metadata analysis" Foreground="#64748B" FontSize="11" Margin="0,3,0,0" />
+            <Border Background="{StaticResource MetaroqPanel}" BorderBrush="{StaticResource MetaroqBorder}" BorderThickness="1" CornerRadius="12" Padding="18"
+                    PreviewMouseLeftButtonDown="HandleReviewPanelPreviewMouseLeftButtonDown">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Grid.Column" Value="4" />
+                        <Setter Property="Grid.ColumnSpan" Value="1" />
+                        <Setter Property="Panel.ZIndex" Value="0" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsReviewFocusMode}" Value="True">
+                                <Setter Property="Grid.Column" Value="0" />
+                                <Setter Property="Grid.ColumnSpan" Value="5" />
+                                <Setter Property="Panel.ZIndex" Value="10" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <Grid x:Name="ReviewWorkspaceGrid">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition x:Name="ReviewCandidateColumn" Width="*" />
+                        <ColumnDefinition x:Name="ReviewColumnGap" Width="0" />
+                        <ColumnDefinition x:Name="ReviewDetailsColumn" Width="0" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="10" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="8" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="10" />
+                        <RowDefinition x:Name="ReviewCandidateRow" Height="0.8*" />
+                        <RowDefinition x:Name="ReviewRowGap" Height="14" />
+                        <RowDefinition x:Name="ReviewDetailsRow" Height="1.2*" />
+                    </Grid.RowDefinitions>
+                    <DockPanel Grid.ColumnSpan="3">
+                        <StackPanel Orientation="Horizontal">
+                            <Image Width="34" Height="34" Source="Assets/Branding/metaroq-icon.png" Stretch="Uniform" Margin="0,0,10,0" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Audiobook review" Foreground="White" FontSize="19" FontWeight="SemiBold" />
+                                <TextBlock Text="Read-only metadata intelligence" Foreground="{StaticResource MetaroqSubtleText}" FontSize="11" Margin="0,2,0,0" />
+                            </StackPanel>
                         </StackPanel>
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Content="Focus review" Command="{Binding EnterReviewFocusCommand}" Padding="13,7" Margin="0,0,8,0"
+                                    ToolTip="Expand the review panel across the workspace">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource MetaroqButtonStyle}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsReviewFocusMode}" Value="True">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <Button Content="Back to catalogue" Command="{Binding ExitReviewFocusCommand}" Padding="13,7" Margin="0,0,8,0"
+                                    ToolTip="Restore the catalogue and source panels (Esc)">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource MetaroqButtonStyle}">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsReviewFocusMode}" Value="True">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
                             <Button Content="Cancel" Command="{Binding CancelAudiobookAnalysisCommand}" Padding="13,7" Margin="0,0,8,0" />
-                            <Button Content="Analyse" Command="{Binding AnalyseAudiobooksCommand}" Padding="13,7" />
+                            <Button Content="Analyse" Command="{Binding AnalyseAudiobooksCommand}" Style="{StaticResource MetaroqPrimaryButtonStyle}" Padding="13,7" />
                         </StackPanel>
                     </DockPanel>
-                    <WrapPanel Grid.Row="2">
+                    <WrapPanel Grid.Row="2" Grid.ColumnSpan="3">
                         <TextBlock Foreground="#CBD5E1" Margin="0,0,14,0"><Run Text="{Binding VisibleAudiobookCandidateCount, Mode=OneWay}" /><Run Text=" / " /><Run Text="{Binding AudiobookCandidateCount, Mode=OneWay}" /><Run Text=" candidates" /></TextBlock>
                         <TextBlock Foreground="#CBD5E1" Margin="0,0,14,0"><Run Text="{Binding MultipartAudiobookCount, Mode=OneWay}" /><Run Text=" multipart" /></TextBlock>
                         <TextBlock Foreground="#CBD5E1" Margin="0,0,14,0"><Run Text="{Binding SingleFileAudiobookCount, Mode=OneWay}" /><Run Text=" single" /></TextBlock>
                         <TextBlock Foreground="#F59E0B" Margin="0,0,14,0"><Run Text="{Binding AudiobooksNeedingReviewCount, Mode=OneWay}" /><Run Text=" need review" /></TextBlock>
-                        <TextBlock Foreground="#34D399" Margin="0,0,14,0"><Run Text="{Binding OnlineSuggestionCount, Mode=OneWay}" /><Run Text=" online suggestions" /></TextBlock>
-                        <TextBlock Foreground="#38BDF8" Margin="0,0,14,0"><Run Text="{Binding OrganisationPlanCount, Mode=OneWay}" /><Run Text=" plans" /></TextBlock>
-                        <TextBlock Foreground="#A7F3D0" Margin="0,0,14,0"><Run Text="{Binding AutomaticReadyPlanCount, Mode=OneWay}" /><Run Text=" automation-ready" /></TextBlock>
-                        <TextBlock Foreground="#22D3EE" Margin="0,0,14,0"><Run Text="{Binding BatchReadyCount, Mode=OneWay}" /><Run Text=" batch-safe" /></TextBlock>
-                        <TextBlock Foreground="#C4B5FD" Margin="0,0,14,0"><Run Text="{Binding BatchApprovedCount, Mode=OneWay}" /><Run Text=" approved" /></TextBlock>
+                        <TextBlock Foreground="{StaticResource MetaroqAqua}" Margin="0,0,14,0"><Run Text="{Binding OnlineSuggestionCount, Mode=OneWay}" /><Run Text=" online suggestions" /></TextBlock>
+                        <TextBlock Foreground="{StaticResource MetaroqAccent}" Margin="0,0,14,0"><Run Text="{Binding OrganisationPlanCount, Mode=OneWay}" /><Run Text=" plans" /></TextBlock>
+                        <TextBlock Foreground="{StaticResource MetaroqAqua}" Margin="0,0,14,0"><Run Text="{Binding AutomaticReadyPlanCount, Mode=OneWay}" /><Run Text=" automation-ready" /></TextBlock>
+                        <TextBlock Foreground="{StaticResource MetaroqAqua}" Margin="0,0,14,0"><Run Text="{Binding BatchReadyCount, Mode=OneWay}" /><Run Text=" batch-safe" /></TextBlock>
+                        <TextBlock Foreground="{StaticResource MetaroqSand}" Margin="0,0,14,0"><Run Text="{Binding BatchApprovedCount, Mode=OneWay}" /><Run Text=" approved" /></TextBlock>
                         <TextBlock Foreground="#F59E0B"><Run Text="{Binding BatchBlockedCount, Mode=OneWay}" /><Run Text=" blocked" /></TextBlock>
                     </WrapPanel>
-                    <StackPanel Grid.Row="4">
+                    <StackPanel Grid.Row="4" Grid.ColumnSpan="3">
                         <DockPanel>
-                            <TextBlock Text="{Binding AudiobookAnalysisStatus}" Foreground="{StaticResource ArchivioAccent}" FontSize="11" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding AudiobookAnalysisStatus}" Foreground="{StaticResource MetaroqAccent}" FontSize="11" TextTrimming="CharacterEllipsis" />
                             <TextBlock DockPanel.Dock="Right" Foreground="#94A3B8" FontSize="10">
                                 <Run Text="{Binding AudiobookAnalysisProcessedCount, Mode=OneWay}" /><Run Text=" / " /><Run Text="{Binding AudiobookAnalysisTotalCount, Mode=OneWay}" />
                             </TextBlock>
@@ -186,9 +289,9 @@
                         <ProgressBar Minimum="0" Maximum="{Binding AudiobookAnalysisProgressMaximum}" Value="{Binding AudiobookAnalysisProcessedCount}" Height="6" Margin="0,5,0,0" />
                         <TextBlock Text="{Binding AudiobookAnalysisCurrentPath}" Foreground="#64748B" FontSize="10" Margin="0,4,0,0" TextTrimming="CharacterEllipsis" />
                         <TextBlock Text="{Binding AudiobookAnalysisStorageStatus}" Foreground="#94A3B8" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Text="{Binding OnlineMetadataStatus}" Foreground="#34D399" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Text="{Binding OrganisationStatus}" Foreground="#38BDF8" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Text="{Binding BatchPlanningStatus}" Foreground="#C4B5FD" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding OnlineMetadataStatus}" Foreground="{StaticResource MetaroqAqua}" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding OrganisationStatus}" Foreground="{StaticResource MetaroqAccent}" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding BatchPlanningStatus}" Foreground="{StaticResource MetaroqSand}" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
                         <TextBox Text="{Binding AudiobookSearchText, UpdateSourceTrigger=PropertyChanged}" Padding="8,5" Margin="0,7,0,0" ToolTip="Search audiobook title, author, or file path" />
                         <UniformGrid Columns="3" Margin="0,6,0,0">
                             <UniformGrid.Resources>
@@ -212,39 +315,39 @@
                                       ToolTip="Also require a saved online suggestion" />
                         </UniformGrid>
                         <UniformGrid Columns="3" Margin="0,2,0,0">
-                            <Button Content="Approve all safe" Command="{Binding ApproveSafeBatchCommand}" Padding="8,5" Margin="0,0,8,0"
+                            <Button Content="Approve all safe" Command="{Binding ApproveSafeBatchCommand}" Style="{StaticResource MetaroqPrimaryButtonStyle}" Padding="8,5" Margin="0,0,8,0"
                                     ToolTip="Save approval for every conflict-free plan; this does not change media files" />
                             <Button Content="Defer blocked" Command="{Binding DeferBlockedBatchCommand}" Padding="8,5" Margin="0,0,8,0"
                                     ToolTip="Mark review-required and conflicting plans as deferred" />
                             <Button Content="Reset decisions" Command="{Binding ResetBatchDecisionsCommand}" Padding="8,5"
                                     ToolTip="Return all saved batch decisions to pending" />
                         </UniformGrid>
-                        <TextBlock Text="Dry run only — approvals are stored in Archivio; no media files are moved or renamed."
+                        <TextBlock Text="Dry run only — approvals are stored in Metaroq; no media files are moved or renamed."
                                    Foreground="#94A3B8" FontSize="9" Margin="0,5,0,0" TextWrapping="Wrap" />
                     </StackPanel>
                     <ListBox Grid.Row="6" ItemsSource="{Binding AudiobookCandidatesView}" SelectedItem="{Binding SelectedAudiobookCandidate}"
                              Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <Border Background="#0F172A" CornerRadius="7" Padding="10" Margin="0,0,0,7">
+                                <Border Background="{StaticResource MetaroqSurface}" BorderBrush="{StaticResource MetaroqBorder}" BorderThickness="1" CornerRadius="7" Padding="10" Margin="0,0,0,7">
                                     <Grid>
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                         <StackPanel>
                                             <TextBlock Text="{Binding AuthorDisplay}" Foreground="#94A3B8" FontSize="11" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{Binding Title}" Foreground="White" FontWeight="SemiBold" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{Binding TypeLabel}" Foreground="#64748B" FontSize="11" Margin="0,3,0,0" />
-                                            <TextBlock Text="{Binding MetadataStatusLabel}" Foreground="{StaticResource ArchivioAccent}" FontSize="10" Margin="0,2,0,0" />
+                                            <TextBlock Text="{Binding MetadataStatusLabel}" Foreground="{StaticResource MetaroqAqua}" FontSize="10" Margin="0,2,0,0" />
                                             <TextBlock Text="{Binding MetadataProvenanceSummary}" Foreground="#64748B" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding OnlineSuggestion.ProvenanceDisplay}" Foreground="#34D399" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding OrganisationProposal.ProposalSummary}" Foreground="#38BDF8" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding OnlineSuggestion.ProvenanceDisplay}" Foreground="{StaticResource MetaroqAqua}" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding OrganisationProposal.ProposalSummary}" Foreground="{StaticResource MetaroqAccent}" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{Binding OrganisationProposal.DestinationDisplay}" Foreground="#64748B" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding BatchPlan.Summary}" Foreground="#C4B5FD" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding BatchPlan.Summary}" Foreground="{StaticResource MetaroqSand}" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{Binding BatchPlan.DecisionLabel}" Foreground="#94A3B8" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="1" Margin="10,0,0,0">
-                                            <TextBlock Text="{Binding Confidence, StringFormat={}{0:P0}}" Foreground="{StaticResource ArchivioAccent}" HorizontalAlignment="Right" />
+                                            <TextBlock Text="{Binding Confidence, StringFormat={}{0:P0}}" Foreground="{StaticResource MetaroqAqua}" HorizontalAlignment="Right" />
                                             <TextBlock Text="{Binding ReviewLabel}" FontSize="10" Margin="0,4,0,0" HorizontalAlignment="Right">
-                                                <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="#34D399" />
+                                                <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource MetaroqAqua}" />
                                                     <Style.Triggers><DataTrigger Binding="{Binding NeedsReview}" Value="True"><Setter Property="Foreground" Value="#F59E0B" /></DataTrigger></Style.Triggers>
                                                 </Style></TextBlock.Style>
                                             </TextBlock>
@@ -254,16 +357,16 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-                    <Border Grid.Row="8" Background="#0F172A" CornerRadius="8" Padding="13">
+                    <Border x:Name="CandidateDetailsPanel" Grid.Row="8" Background="{StaticResource MetaroqSurface}" BorderBrush="{StaticResource MetaroqBorder}" BorderThickness="1" CornerRadius="8" Padding="13">
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <StackPanel DataContext="{Binding SelectedAudiobookCandidate}">
                                 <TextBlock Text="Candidate details" Foreground="White" FontWeight="SemiBold" />
                                 <TextBlock Text="{Binding AuthorDisplay, TargetNullValue=Select a candidate}" Foreground="#94A3B8" Margin="0,9,0,0" />
                                 <TextBlock Text="{Binding Title}" Foreground="White" FontSize="16" FontWeight="SemiBold" Margin="0,3,0,0" TextWrapping="Wrap" />
                                 <TextBlock Foreground="#CBD5E1" Margin="0,7,0,0"><Run Text="{Binding TypeLabel, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding Confidence, Mode=OneWay, StringFormat={}{0:P0}}" /></TextBlock>
-                                <TextBlock Text="{Binding MetadataProvenanceSummary}" Foreground="{StaticResource ArchivioAccent}" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding MetadataProvenanceSummary}" Foreground="{StaticResource MetaroqAqua}" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap" />
                                 <TextBlock Text="Online suggestion" Foreground="White" FontWeight="SemiBold" Margin="0,12,0,4" />
-                                <TextBlock Text="{Binding OnlineSuggestion.Title}" Foreground="#34D399" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding OnlineSuggestion.Title}" Foreground="{StaticResource MetaroqAqua}" FontWeight="SemiBold" TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding OnlineSuggestion.AuthorDisplay}" Foreground="#CBD5E1" Margin="0,3,0,0" TextWrapping="Wrap" />
                                 <TextBlock Foreground="#94A3B8" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap">
                                     <Run Text="{Binding OnlineSuggestion.YearDisplay, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding OnlineSuggestion.ProvenanceDisplay, Mode=OneWay}" />
@@ -271,16 +374,16 @@
                                 <TextBlock Text="{Binding OnlineSuggestion.SubjectDisplay}" Foreground="#64748B" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding OnlineSuggestion.MatchReason}" Foreground="#64748B" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
                                 <TextBlock Text="Read-only organisation plan" Foreground="White" FontWeight="SemiBold" Margin="0,13,0,5" />
-                                <TextBlock Text="{Binding OrganisationProposal.CanonicalDisplay}" Foreground="#38BDF8" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding OrganisationProposal.CanonicalDisplay}" Foreground="{StaticResource MetaroqAccent}" FontWeight="SemiBold" TextWrapping="Wrap" />
                                 <TextBlock Foreground="#CBD5E1" Margin="0,4,0,0" TextWrapping="Wrap">
                                     <Run Text="{Binding OrganisationProposal.ActionLabel, Mode=OneWay}" /><Run Text="  ·  " />
                                     <Run Text="{Binding OrganisationProposal.GenreCategory, Mode=OneWay}" /><Run Text="  ·  " />
                                     <Run Text="{Binding OrganisationProposal.Confidence, Mode=OneWay, StringFormat={}{0:P0}}" />
                                 </TextBlock>
                                 <TextBlock Text="{Binding OrganisationProposal.GroupSummary}" Foreground="#94A3B8" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
-                                <TextBlock Text="{Binding OrganisationProposal.ReadinessLabel}" Foreground="#A7F3D0" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding OrganisationProposal.ReadinessLabel}" Foreground="{StaticResource MetaroqAqua}" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
                                 <TextBlock Text="Suggested destination" Foreground="#CBD5E1" FontWeight="SemiBold" Margin="0,8,0,2" />
-                                <TextBlock Text="{Binding OrganisationProposal.DestinationDisplay}" Foreground="#38BDF8" FontFamily="Consolas" FontSize="10" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding OrganisationProposal.DestinationDisplay}" Foreground="{StaticResource MetaroqAccent}" FontFamily="Consolas" FontSize="10" TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding OrganisationProposal.FutureOptionLabel}" Foreground="#94A3B8" FontSize="10" Margin="0,5,0,0" TextWrapping="Wrap" />
                                 <ItemsControl ItemsSource="{Binding OrganisationProposal.Reasons}" Margin="0,7,0,0"><ItemsControl.ItemTemplate><DataTemplate>
                                     <TextBlock Text="{Binding StringFormat=• {0}}" Foreground="#CBD5E1" TextWrapping="Wrap" Margin="0,0,0,3" />
@@ -289,15 +392,31 @@
                                     <TextBlock Text="{Binding StringFormat=⚠ {0}}" Foreground="#F59E0B" TextWrapping="Wrap" Margin="0,0,0,3" />
                                 </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
                                 <TextBlock Text="Batch dry run" Foreground="White" FontWeight="SemiBold" Margin="0,13,0,5" />
-                                <TextBlock Text="{Binding BatchPlan.ValidationLabel}" Foreground="#C4B5FD" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding BatchPlan.ValidationLabel}" Foreground="{StaticResource MetaroqSand}" FontWeight="SemiBold" TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding BatchPlan.DecisionLabel}" Foreground="#94A3B8" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                <UniformGrid Columns="3" Margin="0,8,0,0">
+                                    <Button Content="Approve selected" Style="{StaticResource MetaroqPrimaryButtonStyle}"
+                                            Command="{Binding DataContext.ApproveSelectedBatchCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            Padding="8,5" Margin="0,0,6,0"
+                                            ToolTip="Approve this plan when all safety checks pass" />
+                                    <Button Content="Defer selected"
+                                            Command="{Binding DataContext.DeferSelectedBatchCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            Padding="8,5" Margin="0,0,6,0"
+                                            ToolTip="Defer this plan for later review" />
+                                    <Button Content="Reset selected"
+                                            Command="{Binding DataContext.ResetSelectedBatchDecisionCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            Padding="8,5"
+                                            ToolTip="Return this plan to decision pending" />
+                                </UniformGrid>
+                                <TextBlock Text="Decision only — no folders or media files will be changed."
+                                           Foreground="#94A3B8" FontSize="9" Margin="0,4,0,0" TextWrapping="Wrap" />
                                 <ItemsControl ItemsSource="{Binding BatchPlan.Warnings}" Margin="0,5,0,0"><ItemsControl.ItemTemplate><DataTemplate>
                                     <TextBlock Text="{Binding StringFormat=⚠ {0}}" Foreground="#F59E0B" TextWrapping="Wrap" Margin="0,0,0,3" />
                                 </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
                                 <ItemsControl ItemsSource="{Binding BatchPlan.Operations}" Margin="0,7,0,0"><ItemsControl.ItemTemplate><DataTemplate>
-                                    <Border Background="#111C31" CornerRadius="4" Padding="7" Margin="0,0,0,5">
+                                    <Border Background="{StaticResource MetaroqSurfaceRaised}" CornerRadius="4" Padding="7" Margin="0,0,0,5">
                                         <StackPanel>
-                                            <TextBlock Text="{Binding KindLabel}" Foreground="#22D3EE" FontSize="10" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding KindLabel}" Foreground="{StaticResource MetaroqAqua}" FontSize="10" FontWeight="SemiBold" />
                                             <TextBlock Text="{Binding Display}" Foreground="#CBD5E1" FontFamily="Consolas" FontSize="9" Margin="0,2,0,0" TextWrapping="Wrap" />
                                         </StackPanel>
                                     </Border>
@@ -312,9 +431,9 @@
                                 </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
                                 <TextBlock Text="Ordered files" Foreground="White" FontWeight="SemiBold" Margin="0,12,0,6" />
                                 <ItemsControl ItemsSource="{Binding Parts}"><ItemsControl.ItemTemplate><DataTemplate>
-                                    <Border Background="#111C31" CornerRadius="4" Padding="8" Margin="0,0,0,7">
+                                    <Border Background="{StaticResource MetaroqSurfaceRaised}" CornerRadius="4" Padding="8" Margin="0,0,0,7">
                                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="26" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                            <TextBlock Text="{Binding Sequence}" Foreground="{StaticResource ArchivioAccent}" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding Sequence}" Foreground="{StaticResource MetaroqAqua}" FontWeight="SemiBold" />
                                             <StackPanel Grid.Column="1">
                                                 <TextBlock Text="{Binding MediaItem.FileName}" Foreground="White" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                                 <TextBlock Foreground="#CBD5E1" Margin="0,4,0,0" TextWrapping="Wrap">
@@ -338,7 +457,7 @@
                                                 <TextBlock Foreground="#64748B" FontSize="10" Margin="0,2,0,0" TextWrapping="Wrap">
                                                     <Run Text="{Binding Metadata.ArtworkDisplay, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding Metadata.SourceHintsDisplay, Mode=OneWay}" />
                                                 </TextBlock>
-                                                <TextBlock Text="{Binding OrderingStatus}" Foreground="{StaticResource ArchivioAccent}" FontSize="10" Margin="0,3,0,0" />
+                                                <TextBlock Text="{Binding OrderingStatus}" Foreground="{StaticResource MetaroqAqua}" FontSize="10" Margin="0,3,0,0" />
                                                 <ItemsControl ItemsSource="{Binding Metadata.Warnings}"><ItemsControl.ItemTemplate><DataTemplate>
                                                     <TextBlock Text="{Binding StringFormat=⚠ {0}}" Foreground="#F59E0B" FontSize="10" TextWrapping="Wrap" Margin="0,2,0,0" />
                                                 </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
@@ -354,8 +473,20 @@
         </Grid>
 
         <DockPanel Grid.Row="3" Margin="0,18,0,0">
-            <TextBlock Text="{Binding Status}" Foreground="{StaticResource ArchivioAccent}" FontWeight="SemiBold" />
-            <TextBlock DockPanel.Dock="Right" Text="{Binding Version, StringFormat=Version {0}}" Foreground="#6B7280" />
+            <DockPanel.Style>
+                <Style TargetType="DockPanel">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsReviewFocusMode}" Value="True">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </DockPanel.Style>
+            <TextBlock DockPanel.Dock="Right" Text="{Binding Version, StringFormat=Version {0}}" Foreground="#6B7280" Margin="12,0,0,0" />
+            <StackPanel Orientation="Horizontal">
+                <Image Width="18" Height="18" Source="Assets/Branding/metaroq-icon.png" Stretch="Uniform" Margin="0,0,7,0" />
+                <TextBlock Text="{Binding Status}" Foreground="{StaticResource MetaroqAqua}" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </StackPanel>
         </DockPanel>
     </Grid>
 </Window>

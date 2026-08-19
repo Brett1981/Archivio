@@ -30,7 +30,7 @@ public partial class App : System.Windows.Application
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Information()
                 .WriteTo.File(
-                    Path.Combine(bootstrapPaths.LogsDirectory, "archivio-.log"),
+                    Path.Combine(bootstrapPaths.LogsDirectory, "metaroq-.log"),
                     rollingInterval: RollingInterval.Day,
                     retainedFileCountLimit: 14)
                 .CreateLogger();
@@ -64,8 +64,8 @@ public partial class App : System.Windows.Application
         }
         catch (Exception exception)
         {
-            Log.Fatal(exception, "Archivio failed during startup");
-            MessageBox.Show(exception.Message, "Archivio startup failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            Log.Fatal(exception, "Metaroq failed during startup");
+            MessageBox.Show(exception.Message, "Metaroq startup failed", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(-1);
         }
     }

@@ -113,7 +113,7 @@ public sealed class OpenLibraryMetadataProvider : IBookMetadataProvider, IDispos
             BaseAddress = new Uri("https://openlibrary.org/"),
             Timeout = TimeSpan.FromSeconds(15)
         };
-        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Archivio/0.1 (local media organiser)");
+        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Metaroq/0.1 (local media organiser)");
         return httpClient;
     }
 
