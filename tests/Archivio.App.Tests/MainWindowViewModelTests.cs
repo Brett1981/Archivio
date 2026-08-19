@@ -93,7 +93,7 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
-    public async Task ExecuteApproved_RequiresConfirmationAndCallsGuardedExecutionService()
+    public async Task ExecuteApproved_RequiresConfirmationAndRunsGuardedExecutionOffUiContext()
     {
         var source = new LibrarySource(
             "Audiobooks",
@@ -115,10 +115,21 @@ public sealed class MainWindowViewModelTests
             includeOperation: true));
 
         Assert.True(viewModel.ExecuteApprovedBatchCommand.CanExecute(null));
-        await viewModel.ExecuteApprovedBatchCommand.ExecuteAsync(null);
+        var previousContext = SynchronizationContext.Current;
+        var uiContext = new InlineSynchronizationContext();
+        try
+        {
+            SynchronizationContext.SetSynchronizationContext(uiContext);
+            await viewModel.ExecuteApprovedBatchCommand.ExecuteAsync(null);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previousContext);
+        }
 
         Assert.Equal(1, confirmation.ExecutionConfirmationCount);
         Assert.Equal(1, executionService.ExecutionCount);
+        Assert.NotSame(uiContext, executionService.ExecutionSynchronizationContext);
         Assert.Contains("Execution complete", viewModel.AudiobookExecutionStatus, StringComparison.Ordinal);
     }
 
@@ -325,6 +336,7 @@ public sealed class MainWindowViewModelTests
     private sealed class RecordingExecutionService : IAudiobookBatchExecutionService
     {
         public int ExecutionCount { get; private set; }
+        public SynchronizationContext? ExecutionSynchronizationContext { get; private set; }
 
         public Task<AudiobookExecutionResult> ExecuteApprovedAsync(
             Guid librarySourceId,
@@ -334,6 +346,7 @@ public sealed class MainWindowViewModelTests
             CancellationToken cancellationToken = default)
         {
             ExecutionCount++;
+            ExecutionSynchronizationContext = SynchronizationContext.Current;
             return Task.FromResult(new AudiobookExecutionResult(
                 Guid.NewGuid(),
                 AudiobookExecutionRunStatus.Completed,
@@ -373,5 +386,10 @@ public sealed class MainWindowViewModelTests
         }
 
         public bool ConfirmRecovery(int operationCount) => true;
+    }
+
+    private sealed class InlineSynchronizationContext : SynchronizationContext
+    {
+        public override void Post(SendOrPostCallback callback, object? state) => callback(state);
     }
 }

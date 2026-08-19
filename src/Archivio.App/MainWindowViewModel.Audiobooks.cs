@@ -10,6 +10,8 @@ namespace Archivio.App;
 
 public sealed partial class MainWindowViewModel
 {
+    private static readonly TimeSpan AudiobookExecutionProgressInterval = TimeSpan.FromMilliseconds(125);
+
     private readonly IAudiobookAnalysisService _audiobookAnalysisService;
     private readonly IOnlineMetadataLookupService _onlineMetadataLookupService;
     private readonly IAudiobookOrganisationService _audiobookOrganisationService;
@@ -334,13 +336,17 @@ public sealed partial class MainWindowViewModel
         AudiobookExecutionStatus = $"Revalidating {operationCount:N0} approved file operation{(operationCount == 1 ? string.Empty : "s")}...";
         try
         {
-            var progress = new Progress<AudiobookExecutionProgress>(UpdateAudiobookExecutionProgress);
-            var result = await _audiobookBatchExecutionService.ExecuteApprovedAsync(
-                source.Id,
-                source.Path,
-                AudiobookCandidates.ToList(),
-                progress,
-                _audiobookExecutionCancellation.Token);
+            var progress = CreateAudiobookExecutionProgress();
+            var candidates = AudiobookCandidates.ToList();
+            var cancellationToken = _audiobookExecutionCancellation.Token;
+            var result = await Task.Run(
+                () => _audiobookBatchExecutionService.ExecuteApprovedAsync(
+                    source.Id,
+                    source.Path,
+                    candidates,
+                    progress,
+                    cancellationToken),
+                cancellationToken);
             AudiobookExecutionStatus = result.Message;
             HasInterruptedAudiobookExecution = result.NeedsRecovery;
             if (!result.Succeeded)
@@ -401,12 +407,16 @@ public sealed partial class MainWindowViewModel
         AudiobookExecutionStatus = "Recovering the interrupted execution journal...";
         try
         {
-            var progress = new Progress<AudiobookExecutionProgress>(UpdateAudiobookExecutionProgress);
-            var result = await _audiobookBatchExecutionService.RecoverInterruptedAsync(
-                SelectedSource.Id,
-                SelectedSource.Path,
-                progress,
-                _audiobookExecutionCancellation.Token);
+            var progress = CreateAudiobookExecutionProgress();
+            var source = SelectedSource;
+            var cancellationToken = _audiobookExecutionCancellation.Token;
+            var result = await Task.Run(
+                () => _audiobookBatchExecutionService.RecoverInterruptedAsync(
+                    source.Id,
+                    source.Path,
+                    progress,
+                    cancellationToken),
+                cancellationToken);
             AudiobookExecutionStatus = result.Message;
             HasInterruptedAudiobookExecution = result.NeedsRecovery;
             Status = result.Message;
@@ -442,6 +452,15 @@ public sealed partial class MainWindowViewModel
         AudiobookExecutionTotalCount = progress.TotalCount;
         AudiobookExecutionCurrentPath = progress.CurrentPath;
         AudiobookExecutionStatus = progress.Status;
+    }
+
+    private IProgress<AudiobookExecutionProgress> CreateAudiobookExecutionProgress()
+    {
+        var uiProgress = new Progress<AudiobookExecutionProgress>(UpdateAudiobookExecutionProgress);
+        return new ThrottledProgress<AudiobookExecutionProgress>(
+            uiProgress,
+            AudiobookExecutionProgressInterval,
+            progress => progress.TotalCount > 0 && progress.ProcessedCount >= progress.TotalCount);
     }
 
     partial void OnAudiobookAnalysisTotalCountChanged(int value) =>
