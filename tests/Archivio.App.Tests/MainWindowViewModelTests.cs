@@ -31,6 +31,30 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public void ItemFirstReview_CollapsesRelatedCandidatesIntoOneAudiobookPlan()
+    {
+        var viewModel = CreateViewModel(new CountingBatchPlanningService());
+        var primary = CreateCandidateWithOrganisationPlan(isPrimary: true);
+        var related = CreateCandidateWithOrganisationPlan(isPrimary: false);
+
+        viewModel.AudiobookCandidates = [primary, related];
+
+        var visible = viewModel.AudiobookCandidatesView
+            .Cast<AudiobookCandidateGroup>()
+            .ToList();
+
+        Assert.Equal(2, viewModel.AudiobookCandidateCount);
+        Assert.Equal(1, viewModel.AudiobookReviewItemCount);
+        Assert.Equal("1 of 1 audiobook plans", viewModel.AudiobookReviewCountLabel);
+        Assert.Same(primary, Assert.Single(visible));
+        Assert.Equal("Roald Dahl", primary.ReviewAuthorDisplay);
+        Assert.Equal("The BFG", primary.ReviewTitle);
+        Assert.Equal("1 audiobook · 35 source files", primary.ReviewItemSummary);
+        Assert.Equal("One folder with 35 ordered tracks", primary.ReviewPlannedResult);
+        Assert.Equal("Show 35 source files", primary.SourceFilesDisclosureLabel);
+    }
+
+    [Fact]
     public async Task LoadingSavedAnalysis_PreparesBatchPreviewOnlyOnce()
     {
         var source = new LibrarySource(
@@ -179,6 +203,48 @@ public sealed class MainWindowViewModelTests
                         AudiobookFileOperationKind.MoveAndRename)]
                     : [],
                 [],
+                DateTime.UtcNow)
+        };
+
+    private static AudiobookCandidateGroup CreateCandidateWithOrganisationPlan(bool isPrimary) =>
+        new(
+            isPrimary ? "Chapter Five" : "Chapter Six",
+            "Roald Dahl",
+            isPrimary ? "Chapter Five" : "Chapter Six",
+            MetadataValueSource.EmbeddedTag,
+            MetadataValueSource.EmbeddedTag,
+            true,
+            [],
+            1m,
+            [])
+        {
+            OrganisationProposal = new AudiobookOrganisationProposal(
+                "the-bfg-plan",
+                "Roald Dahl",
+                "The BFG",
+                1982,
+                "Children & Young Adult",
+                "Roald Dahl\\The BFG",
+                "{sequence} - The BFG{original extension}",
+                AudiobookOrganisationAction.ConsolidateCandidates,
+                35,
+                35,
+                isPrimary,
+                false,
+                1m,
+                false,
+                true,
+                [],
+                [],
+                DateTime.UtcNow),
+            BatchPlan = new AudiobookBatchPlan(
+                "the-bfg-plan",
+                "signature",
+                "Roald Dahl - The BFG",
+                AudiobookBatchValidationStatus.ReviewRequired,
+                AudiobookBatchDecision.Pending,
+                [],
+                ["Review source grouping"],
                 DateTime.UtcNow)
         };
 

@@ -34,7 +34,11 @@ public sealed partial class MainWindowViewModel
                 _audiobookCandidatesView = CollectionViewSource.GetDefaultView(AudiobookCandidates);
                 _audiobookCandidatesView.Filter = FilterAudiobookCandidate;
                 _audiobookCandidatesView.CollectionChanged += (_, _) =>
+                {
                     OnPropertyChanged(nameof(VisibleAudiobookCandidateCount));
+                    OnPropertyChanged(nameof(VisibleAudiobookReviewItemCount));
+                    OnPropertyChanged(nameof(AudiobookReviewCountLabel));
+                };
             }
 
             return _audiobookCandidatesView;
@@ -43,9 +47,19 @@ public sealed partial class MainWindowViewModel
 
     public int AudiobookCandidateCount => AudiobookCandidates.Count;
     public int VisibleAudiobookCandidateCount => AudiobookCandidatesView.Cast<object>().Count();
+    public bool HasAudiobookOrganisationPlans => OrganisationPlanCount > 0;
+    public int AudiobookReviewItemCount => HasAudiobookOrganisationPlans
+        ? OrganisationPlanCount
+        : AudiobookCandidateCount;
+    public int VisibleAudiobookReviewItemCount => AudiobookCandidatesView.Cast<object>().Count();
+    public string AudiobookReviewCountLabel => HasAudiobookOrganisationPlans
+        ? $"{VisibleAudiobookReviewItemCount:N0} of {AudiobookReviewItemCount:N0} audiobook plans"
+        : $"{VisibleAudiobookReviewItemCount:N0} of {AudiobookReviewItemCount:N0} audiobook candidates";
     public int MultipartAudiobookCount => AudiobookCandidates.Count(candidate => candidate.IsMultipart);
     public int SingleFileAudiobookCount => AudiobookCandidates.Count(candidate => !candidate.IsMultipart);
-    public int AudiobooksNeedingReviewCount => AudiobookCandidates.Count(candidate => candidate.NeedsReview);
+    public int AudiobooksNeedingReviewCount => HasAudiobookOrganisationPlans
+        ? AudiobookCandidates.Count(candidate => candidate.IsPrimaryOrganisationPlan && candidate.ReviewItemNeedsReview)
+        : AudiobookCandidates.Count(candidate => candidate.NeedsReview);
     public int OnlineSuggestionCount => AudiobookCandidates.Count(candidate => candidate.HasOnlineSuggestion);
     public int OrganisationPlanCount => AudiobookCandidates.Count(candidate => candidate.IsPrimaryOrganisationPlan);
     public int AutomaticReadyPlanCount => AudiobookCandidates.Count(candidate =>
@@ -177,6 +191,8 @@ public sealed partial class MainWindowViewModel
         _audiobookCandidatesView = null;
         OnPropertyChanged(nameof(AudiobookCandidatesView));
         OnPropertyChanged(nameof(VisibleAudiobookCandidateCount));
+        OnPropertyChanged(nameof(VisibleAudiobookReviewItemCount));
+        OnPropertyChanged(nameof(AudiobookReviewCountLabel));
     }
 
     partial void OnAudiobookSearchTextChanged(string value) => RefreshAudiobookCandidatesView();
@@ -507,7 +523,7 @@ public sealed partial class MainWindowViewModel
             }
 
             AudiobookCandidates = new ObservableCollection<AudiobookCandidateGroup>(groups);
-            SelectedAudiobookCandidate = AudiobookCandidates.FirstOrDefault();
+            SelectedAudiobookCandidate = FirstAudiobookReviewItem();
             NotifyAudiobookSummaryChanged();
             if (sourceId is not null && groups.Count > 0)
             {
@@ -525,7 +541,7 @@ public sealed partial class MainWindowViewModel
                     enrichedGroups,
                     cancellation.Token);
                 AudiobookCandidates = new ObservableCollection<AudiobookCandidateGroup>(proposedGroups);
-                SelectedAudiobookCandidate = AudiobookCandidates.FirstOrDefault();
+                SelectedAudiobookCandidate = FirstAudiobookReviewItem();
                 NotifyAudiobookSummaryChanged();
             }
 
@@ -793,7 +809,7 @@ public sealed partial class MainWindowViewModel
                 }
 
                 AudiobookCandidates = new ObservableCollection<AudiobookCandidateGroup>(preparedCandidates!);
-                SelectedAudiobookCandidate = AudiobookCandidates.FirstOrDefault();
+                SelectedAudiobookCandidate = FirstAudiobookReviewItem();
                 AudiobookAnalysisProcessedCount = saved.Candidates.Sum(candidate => candidate.Parts.Count);
                 AudiobookAnalysisTotalCount = AudiobookAnalysisProcessedCount;
                 AudiobookAnalysisWarningCount = saved.WarningCount;
@@ -890,7 +906,12 @@ public sealed partial class MainWindowViewModel
             return false;
         }
 
-        if (ShowAudiobooksNeedingReviewOnly && !candidate.NeedsReview)
+        if (HasAudiobookOrganisationPlans && !candidate.IsPrimaryOrganisationPlan)
+        {
+            return false;
+        }
+
+        if (ShowAudiobooksNeedingReviewOnly && !candidate.ReviewItemNeedsReview)
         {
             return false;
         }
@@ -944,11 +965,21 @@ public sealed partial class MainWindowViewModel
     {
         AudiobookCandidatesView.Refresh();
         OnPropertyChanged(nameof(VisibleAudiobookCandidateCount));
+        OnPropertyChanged(nameof(VisibleAudiobookReviewItemCount));
+        OnPropertyChanged(nameof(AudiobookReviewCountLabel));
     }
+
+    private AudiobookCandidateGroup? FirstAudiobookReviewItem() =>
+        AudiobookCandidates.FirstOrDefault(candidate => candidate.IsPrimaryOrganisationPlan) ??
+        AudiobookCandidates.FirstOrDefault();
 
     private void NotifyAudiobookSummaryChanged()
     {
         OnPropertyChanged(nameof(AudiobookCandidateCount));
+        OnPropertyChanged(nameof(HasAudiobookOrganisationPlans));
+        OnPropertyChanged(nameof(AudiobookReviewItemCount));
+        OnPropertyChanged(nameof(VisibleAudiobookReviewItemCount));
+        OnPropertyChanged(nameof(AudiobookReviewCountLabel));
         OnPropertyChanged(nameof(MultipartAudiobookCount));
         OnPropertyChanged(nameof(SingleFileAudiobookCount));
         OnPropertyChanged(nameof(AudiobooksNeedingReviewCount));
