@@ -8,11 +8,14 @@ internal sealed class MediaItemRepository(ArchivioDbContext dbContext) : IMediaI
 {
     public async Task<IReadOnlyList<MediaItem>> GetByLibrarySourceIdAsync(
         Guid librarySourceId,
-        CancellationToken cancellationToken = default) =>
-        await dbContext.MediaItems
+        CancellationToken cancellationToken = default)
+    {
+        DetachTrackedMediaItems();
+        return await dbContext.MediaItems
             .Where(item => item.LibrarySourceId == librarySourceId)
             .OrderBy(item => item.RelativePath)
             .ToListAsync(cancellationToken);
+    }
 
     public Task<MediaItem?> GetByPathAsync(
         Guid librarySourceId,
@@ -22,6 +25,7 @@ internal sealed class MediaItemRepository(ArchivioDbContext dbContext) : IMediaI
         ArgumentException.ThrowIfNullOrWhiteSpace(fullPath);
         var normalizedPath = Path.GetFullPath(fullPath.Trim());
 
+        DetachTrackedMediaItems();
         return dbContext.MediaItems.SingleOrDefaultAsync(
             item => item.LibrarySourceId == librarySourceId && item.FullPath == normalizedPath,
             cancellationToken);
@@ -35,4 +39,12 @@ internal sealed class MediaItemRepository(ArchivioDbContext dbContext) : IMediaI
 
     public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
         dbContext.SaveChangesAsync(cancellationToken);
+
+    private void DetachTrackedMediaItems()
+    {
+        foreach (var entry in dbContext.ChangeTracker.Entries<MediaItem>().ToList())
+        {
+            entry.State = EntityState.Detached;
+        }
+    }
 }
