@@ -9,5 +9,6 @@ public interface IAudiobookOrganisationStore
     Task SaveAsync(
         Guid librarySourceId,
         IReadOnlyCollection<AudiobookOrganisationCacheEntry> entries,
+        IReadOnlyCollection<string> currentCandidateKeys,
         CancellationToken cancellationToken = default);
 }

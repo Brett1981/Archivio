@@ -95,6 +95,69 @@ public sealed class AudiobookOrganisationServiceTests
         Assert.DoesNotContain('?', proposal.SuggestedFileNamePattern);
     }
 
+    [Theory]
+    [InlineData("Sci-Fi", "Science Fiction")]
+    [InlineData("Mystery", "Mystery & Thriller")]
+    [InlineData("Audio Book: Children & Young Adult", "Children & Young Adult")]
+    public async Task PrepareProposals_UsesExplicitEmbeddedGenreWhenOnlineMetadataIsUnavailable(
+        string embeddedGenre,
+        string expectedCategory)
+    {
+        var sourceId = Guid.NewGuid();
+        var candidate = CreateCandidate(
+            sourceId,
+            "A Reliable Book",
+            "A Reliable Author",
+            confidence: 1m,
+            genre: embeddedGenre);
+        var service = new AudiobookOrganisationService(new StubOrganisationStore());
+
+        var result = await service.PrepareProposalsAsync(sourceId, [candidate]);
+
+        var proposal = Assert.IsType<AudiobookOrganisationProposal>(Assert.Single(result).OrganisationProposal);
+        Assert.Equal(expectedCategory, proposal.GenreCategory);
+        Assert.StartsWith(expectedCategory, proposal.SuggestedRelativeFolder, StringComparison.Ordinal);
+        Assert.True(proposal.ReadyForAutomaticHandling);
+        Assert.Contains(proposal.Reasons, reason => reason.Contains("embedded tag", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task PrepareProposals_DoesNotTreatGenericAudiobookTagAsAGenre()
+    {
+        var sourceId = Guid.NewGuid();
+        var candidate = CreateCandidate(
+            sourceId,
+            "A Reliable Book",
+            "A Reliable Author",
+            confidence: 1m,
+            genre: "Audio Book");
+        var service = new AudiobookOrganisationService(new StubOrganisationStore());
+
+        var result = await service.PrepareProposalsAsync(sourceId, [candidate]);
+
+        var proposal = Assert.IsType<AudiobookOrganisationProposal>(Assert.Single(result).OrganisationProposal);
+        Assert.Equal("Uncategorised", proposal.GenreCategory);
+        Assert.False(proposal.ReadyForAutomaticHandling);
+    }
+
+    [Fact]
+    public async Task PrepareProposals_PrunesCacheWhenTheCurrentAnalysisIsEmpty()
+    {
+        var sourceId = Guid.NewGuid();
+        var staleCandidate = CreateCandidate(sourceId, "Old Book", "Old Author");
+        var store = new StubOrganisationStore();
+        var service = new AudiobookOrganisationService(store);
+        await service.PrepareProposalsAsync(sourceId, [staleCandidate]);
+        Assert.NotEmpty(store.Cache);
+
+        var result = await service.PrepareProposalsAsync(
+            sourceId,
+            Array.Empty<AudiobookCandidateGroup>());
+
+        Assert.Empty(result);
+        Assert.Empty(store.Cache);
+    }
+
     [Fact]
     public async Task PrepareProposals_ReusesPersistedProposalWhenInputsAreUnchanged()
     {
@@ -227,7 +290,8 @@ public sealed class AudiobookOrganisationServiceTests
         int partCount = 1,
         decimal confidence = 0.95m,
         MetadataValueSource source = MetadataValueSource.EmbeddedTag,
-        string? relativeDirectory = null)
+        string? relativeDirectory = null,
+        string? genre = null)
     {
         var now = DateTime.UtcNow;
         var parts = Enumerable.Range(1, partCount)
@@ -249,7 +313,9 @@ public sealed class AudiobookOrganisationServiceTests
                     new MetadataValue(title, source),
                     new MetadataValue(author, source),
                     new MetadataValue(null, MetadataValueSource.None),
-                    new MetadataValue(null, MetadataValueSource.None),
+                    new MetadataValue(
+                        genre,
+                        genre is null ? MetadataValueSource.None : MetadataValueSource.EmbeddedTag),
                     null,
                     null,
                     null,
@@ -307,12 +373,19 @@ public sealed class AudiobookOrganisationServiceTests
         public Task SaveAsync(
             Guid librarySourceId,
             IReadOnlyCollection<AudiobookOrganisationCacheEntry> entries,
+            IReadOnlyCollection<string> currentCandidateKeys,
             CancellationToken cancellationToken = default)
         {
             SavedEntries.AddRange(entries);
             foreach (var entry in entries)
             {
                 Cache[entry.CandidateKey] = entry;
+            }
+
+            var currentKeys = currentCandidateKeys.ToHashSet(StringComparer.Ordinal);
+            foreach (var staleKey in Cache.Keys.Where(key => !currentKeys.Contains(key)).ToList())
+            {
+                Cache.Remove(staleKey);
             }
 
             return Task.CompletedTask;

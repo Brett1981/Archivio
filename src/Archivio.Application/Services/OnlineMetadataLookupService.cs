@@ -94,6 +94,11 @@ public sealed partial class OnlineMetadataLookupService(
                 cancellationToken);
         }
 
+        await analysisStore.PruneOnlineMetadataCacheAsync(
+            librarySourceId,
+            eligible.Select(candidate => candidate.CandidateKey).ToList(),
+            cancellationToken);
+
         return candidates
             .Select(candidate => suggestions.TryGetValue(candidate.CandidateKey, out var suggestion)
                 ? candidate with { OnlineSuggestion = suggestion }

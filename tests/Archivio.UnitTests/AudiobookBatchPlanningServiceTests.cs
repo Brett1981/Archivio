@@ -138,6 +138,36 @@ public sealed class AudiobookBatchPlanningServiceTests
     }
 
     [Fact]
+    public async Task PrepareBatch_IgnoresMissingHistoricalItemAtDestination()
+    {
+        var fixture = CreateCandidate("plan-1", "Author", "Book", ready: true);
+        var now = DateTime.UtcNow;
+        var targetRelativePath = Path.Combine("Author", "Book", "Author - Book.mp3");
+        var historicalItem = new MediaItem(
+            fixture.SourceId,
+            Path.Combine(fixture.Root, targetRelativePath),
+            targetRelativePath,
+            200,
+            now,
+            now,
+            now);
+        historicalItem.MarkMissing(now.AddMinutes(1));
+        var service = new AudiobookBatchPlanningService(new StubDecisionStore());
+
+        var result = await service.PrepareBatchAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [fixture.Candidate],
+            [fixture.Item, historicalItem]);
+
+        var plan = Assert.IsType<AudiobookBatchPlan>(Assert.Single(result).BatchPlan);
+        Assert.Equal(AudiobookBatchValidationStatus.Ready, plan.ValidationStatus);
+        Assert.DoesNotContain(
+            plan.Warnings,
+            warning => warning.Contains("already occupied", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task PrepareBatch_AssignsStableSequenceNamesToGroupedFiles()
     {
         var first = CreateCandidate("plan-1", "Author", "Book", ready: true, sourceFile: "Part 01.mp3");

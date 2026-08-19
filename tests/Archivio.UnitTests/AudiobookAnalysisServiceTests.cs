@@ -556,5 +556,10 @@ public sealed class AudiobookAnalysisServiceTests
             Guid librarySourceId,
             IReadOnlyCollection<OnlineMetadataCacheEntry> entries,
             CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task PruneOnlineMetadataCacheAsync(
+            Guid librarySourceId,
+            IReadOnlyCollection<string> currentCandidateKeys,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

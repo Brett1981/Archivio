@@ -50,6 +50,11 @@ public interface IAudiobookAnalysisStore
         Guid librarySourceId,
         IReadOnlyCollection<OnlineMetadataCacheEntry> entries,
         CancellationToken cancellationToken = default);
+
+    Task PruneOnlineMetadataCacheAsync(
+        Guid librarySourceId,
+        IReadOnlyCollection<string> currentCandidateKeys,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record AudiobookMetadataCacheEntry(

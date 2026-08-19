@@ -29,6 +29,7 @@ public sealed partial class AudiobookBatchPlanningService(
 
         var preparedAtUtc = DateTime.UtcNow;
         var indexedByRelativePath = indexedMedia
+            .Where(item => !item.IsMissing)
             .GroupBy(item => item.RelativePath, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
         var plans = candidates

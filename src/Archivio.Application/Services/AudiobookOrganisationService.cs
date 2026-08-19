@@ -8,7 +8,7 @@ namespace Archivio.Application.Services;
 public sealed partial class AudiobookOrganisationService(
     IAudiobookOrganisationStore organisationStore) : IAudiobookOrganisationService
 {
-    private const string ProposalAlgorithmVersion = "audiobook-organisation-v2";
+    private const string ProposalAlgorithmVersion = "audiobook-organisation-v3";
     private static readonly HashSet<string> ReservedWindowsNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "CON", "PRN", "AUX", "NUL",
@@ -24,6 +24,7 @@ public sealed partial class AudiobookOrganisationService(
         ArgumentNullException.ThrowIfNull(candidates);
         if (candidates.Count == 0)
         {
+            await organisationStore.SaveAsync(librarySourceId, [], [], cancellationToken);
             return candidates;
         }
 
@@ -49,7 +50,11 @@ public sealed partial class AudiobookOrganisationService(
             result.Add(candidate with { OrganisationProposal = proposal });
         }
 
-        await organisationStore.SaveAsync(librarySourceId, entriesToSave, cancellationToken);
+        await organisationStore.SaveAsync(
+            librarySourceId,
+            entriesToSave,
+            generated.Keys.ToList(),
+            cancellationToken);
         return result;
     }
 
@@ -71,7 +76,13 @@ public sealed partial class AudiobookOrganisationService(
             var identity = ResolveCanonicalIdentity(relatedCandidates, onlineSuggestion);
             var canonicalAuthor = identity.Author;
             var canonicalTitle = identity.Title;
-            var genre = ClassifyGenre(onlineSuggestion?.Subjects ?? []);
+            var localGenres = relatedCandidates
+                .SelectMany(candidate => candidate.Parts)
+                .Select(part => part.Metadata.Genre.Value)
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value!)
+                .ToList();
+            var genre = ClassifyGenre(onlineSuggestion?.Subjects ?? [], localGenres);
             var sourceFileCount = relatedCandidates.Sum(candidate => candidate.Parts.Count);
             var confidence = onlineSuggestion?.MatchConfidence ??
                 relatedCandidates.Min(candidate => candidate.Confidence);
@@ -102,6 +113,7 @@ public sealed partial class AudiobookOrganisationService(
             var hasNoReviewFlags = relatedCandidates.All(candidate => !candidate.NeedsReview);
             var ready = !string.Equals(canonicalAuthor, "Unknown Author", StringComparison.OrdinalIgnoreCase) &&
                         meaningfulTitle &&
+                        genre.Category != "Uncategorised" &&
                         hasNoReviewFlags &&
                         !identity.RequiresReview &&
                         (onlineSuggestion is not null
@@ -310,13 +322,14 @@ public sealed partial class AudiobookOrganisationService(
             : AudiobookOrganisationAction.MoveAndRename;
     }
 
-    private static (string Category, string Reason) ClassifyGenre(IReadOnlyList<string> subjects)
+    private static (string Category, string Reason) ClassifyGenre(
+        IReadOnlyList<string> subjects,
+        IReadOnlyList<string> localGenres)
     {
-        var subjectText = string.Join(' ', subjects).ToLowerInvariant();
         var mappings = new (string Category, string[] Keywords)[]
         {
             ("Mystery & Thriller", ["mystery", "detective", "crime", "thriller", "suspense"]),
-            ("Science Fiction", ["science fiction", "space opera", "dystopian", "time travel"]),
+            ("Science Fiction", ["science fiction", "sci-fi", "scifi", "space opera", "dystopian", "time travel"]),
             ("Fantasy", ["fantasy", "magic", "epic fantasy", "urban fantasy"]),
             ("Horror", ["horror", "ghost", "occult"]),
             ("Romance", ["romance", "love stories"]),
@@ -327,16 +340,39 @@ public sealed partial class AudiobookOrganisationService(
             ("Fiction", ["fiction", "literature"])
         };
 
+        var subjectText = string.Join(' ', subjects).ToLowerInvariant();
         foreach (var mapping in mappings)
         {
             var keyword = mapping.Keywords.FirstOrDefault(subjectText.Contains);
             if (keyword is not null)
             {
-                return (mapping.Category, $"Genre inferred from online subject ‘{keyword}’.");
+                return (mapping.Category, $"Genre inferred from online subject '{keyword}'.");
             }
         }
 
-        return ("Uncategorised", "No reliable genre subject was available.");
+        var localMatches = localGenres
+            .Select(value => new
+            {
+                Value = value,
+                Mapping = mappings.FirstOrDefault(mapping =>
+                    mapping.Keywords.Any(keyword => value.Contains(keyword, StringComparison.OrdinalIgnoreCase)))
+            })
+            .Where(match => match.Mapping.Category is not null)
+            .ToList();
+        var categories = localMatches
+            .Select(match => match.Mapping.Category)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (categories.Count == 1)
+        {
+            return (
+                categories[0],
+                $"Genre inferred from embedded tag '{localMatches[0].Value}'.");
+        }
+
+        return categories.Count > 1
+            ? ("Uncategorised", "Embedded genre tags map to conflicting categories.")
+            : ("Uncategorised", "No reliable online subject or embedded genre tag was available.");
     }
 
     private static IReadOnlyList<string> BuildReasons(

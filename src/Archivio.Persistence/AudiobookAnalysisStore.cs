@@ -346,6 +346,24 @@ internal sealed class AudiobookAnalysisStore(
         await context.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task PruneOnlineMetadataCacheAsync(
+        Guid librarySourceId,
+        IReadOnlyCollection<string> currentCandidateKeys,
+        CancellationToken cancellationToken = default)
+    {
+        await using var context = await dbContextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        var currentKeys = currentCandidateKeys.ToHashSet(StringComparer.Ordinal);
+        var existing = await context.OnlineMetadataCache
+            .Where(entry => entry.LibrarySourceId == librarySourceId)
+            .ToListAsync(cancellationToken);
+        context.OnlineMetadataCache.RemoveRange(
+            existing.Where(entry => !currentKeys.Contains(entry.CandidateKey)));
+
+        await context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
+
     private static async Task<AudiobookAnalysisRunEntity> GetOrCreateRunAsync(
         ArchivioDbContext context,
         Guid librarySourceId,

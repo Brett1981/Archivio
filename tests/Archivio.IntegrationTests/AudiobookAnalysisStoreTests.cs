@@ -85,6 +85,10 @@ public sealed class AudiobookAnalysisStoreTests
                 OnlineMetadataIdentity.CreateInputSignature(candidate.Title, candidate.Author),
                 now,
                 onlineSuggestion)]);
+        await store.SaveOnlineMetadataCacheAsync(
+            source.Id,
+            [new OnlineMetadataCacheEntry("stale-candidate", "stale-signature", now, null)]);
+        await store.PruneOnlineMetadataCacheAsync(source.Id, [candidate.CandidateKey]);
         var organisationProposal = new AudiobookOrganisationProposal(
             "plan-key",
             "Author",
@@ -108,10 +112,19 @@ public sealed class AudiobookAnalysisStoreTests
         await organisationStore.SaveAsync(
             source.Id,
             [new AudiobookOrganisationCacheEntry(
+                "stale-candidate",
+                "stale-signature",
+                now,
+                organisationProposal)],
+            ["stale-candidate"]);
+        await organisationStore.SaveAsync(
+            source.Id,
+            [new AudiobookOrganisationCacheEntry(
                 candidate.CandidateKey,
                 "proposal-signature",
                 now,
-                organisationProposal)]);
+                organisationProposal)],
+            [candidate.CandidateKey]);
         var batchDecisionStore = new AudiobookBatchDecisionStore(factory);
         await batchDecisionStore.SaveAsync(
             source.Id,
@@ -131,6 +144,8 @@ public sealed class AudiobookAnalysisStoreTests
         Assert.NotNull(saved);
         Assert.Equal("Author - Book", Assert.Single(saved.Candidates).DisplayName);
         Assert.Equal("Book", Assert.Single(saved.Candidates).OnlineSuggestion?.Title);
+        Assert.DoesNotContain("stale-candidate", onlineCached.Keys);
+        Assert.DoesNotContain("stale-candidate", organisationCached.Keys);
         Assert.Equal("Book", onlineCached[candidate.CandidateKey].Suggestion?.Title);
         Assert.Equal(
             "Book",

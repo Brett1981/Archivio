@@ -329,6 +329,20 @@ public sealed class OnlineMetadataLookupServiceTests
             return Task.CompletedTask;
         }
 
+        public Task PruneOnlineMetadataCacheAsync(
+            Guid librarySourceId,
+            IReadOnlyCollection<string> currentCandidateKeys,
+            CancellationToken cancellationToken = default)
+        {
+            var currentKeys = currentCandidateKeys.ToHashSet(StringComparer.Ordinal);
+            foreach (var staleKey in OnlineCache.Keys.Where(key => !currentKeys.Contains(key)).ToList())
+            {
+                OnlineCache.Remove(staleKey);
+            }
+
+            return Task.CompletedTask;
+        }
+
         public Task<IReadOnlyDictionary<Guid, AudiobookMetadataCacheEntry>> LoadMetadataCacheAsync(
             Guid librarySourceId,
             CancellationToken cancellationToken = default) =>
