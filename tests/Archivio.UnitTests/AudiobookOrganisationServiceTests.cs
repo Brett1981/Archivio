@@ -195,7 +195,96 @@ public sealed class AudiobookOrganisationServiceTests
 
         var proposal = Assert.IsType<AudiobookOrganisationProposal>(Assert.Single(result).OrganisationProposal);
         Assert.False(proposal.ReadyForAutomaticHandling);
-        Assert.Contains(proposal.Warnings, warning => warning.Contains("track or disc", StringComparison.Ordinal));
+        Assert.Contains(proposal.Warnings, warning => warning.Contains("track, disc", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task PrepareProposals_ConsolidatesNumberedPartsUsingEmbeddedAlbumIdentity()
+    {
+        var sourceId = Guid.NewGuid();
+        var candidates = new[]
+        {
+            CreateCandidate(
+                sourceId,
+                "The Key to Midnight - 01 of 02",
+                "Dean Koontz",
+                confidence: 1m,
+                genre: "Mystery",
+                album: "The Key to Midnight",
+                trackNumber: 1),
+            CreateCandidate(
+                sourceId,
+                "The Key to Midnight - 02 of 02",
+                "Dean Koontz",
+                confidence: 1m,
+                genre: "Mystery",
+                album: "The Key to Midnight",
+                trackNumber: 2)
+        };
+        var service = new AudiobookOrganisationService(new StubOrganisationStore());
+
+        var result = await service.PrepareProposalsAsync(sourceId, candidates);
+
+        var primary = Assert.Single(result, candidate => candidate.IsPrimaryOrganisationPlan);
+        var proposal = Assert.IsType<AudiobookOrganisationProposal>(primary.OrganisationProposal);
+        Assert.Equal("The Key to Midnight", proposal.CanonicalTitle);
+        Assert.Equal(2, proposal.RelatedCandidateCount);
+        Assert.Equal(AudiobookOrganisationAction.ConsolidateCandidates, proposal.RecommendedAction);
+        Assert.True(proposal.ReadyForAutomaticHandling);
+        Assert.Contains(proposal.Reasons, reason => reason.Contains("album metadata", StringComparison.Ordinal));
+        Assert.All(result, candidate =>
+            Assert.Equal(proposal.PlanKey, candidate.OrganisationProposal?.PlanKey));
+    }
+
+    [Fact]
+    public async Task PrepareProposals_UsesAuthorBookFolderWhenAlbumIsOnlyADiscNumber()
+    {
+        var sourceId = Guid.NewGuid();
+        var candidate = CreateCandidate(
+            sourceId,
+            "Chapter One",
+            "Roald Dahl",
+            confidence: 1m,
+            relativeDirectory: Path.Combine("Roald Dahl", "Roald Dahl - Esio Trot"),
+            genre: "Children",
+            album: "6",
+            trackNumber: 1);
+        var service = new AudiobookOrganisationService(new StubOrganisationStore());
+
+        var result = await service.PrepareProposalsAsync(sourceId, [candidate]);
+
+        var proposal = Assert.IsType<AudiobookOrganisationProposal>(Assert.Single(result).OrganisationProposal);
+        Assert.Equal("Roald Dahl", proposal.CanonicalAuthor);
+        Assert.Equal("Esio Trot", proposal.CanonicalTitle);
+        Assert.Equal(
+            Path.Combine("Children & Young Adult", "Roald Dahl", "Esio Trot"),
+            proposal.SuggestedRelativeFolder);
+        Assert.True(proposal.ReadyForAutomaticHandling);
+        Assert.Contains(proposal.Reasons, reason => reason.Contains("author/book folder", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("Chapter Eleven")]
+    [InlineData("A Book - 01 of 10")]
+    [InlineData("Part 3")]
+    public async Task PrepareProposals_BlocksUnresolvedSegmentTitles(string title)
+    {
+        var sourceId = Guid.NewGuid();
+        var candidate = CreateCandidate(
+            sourceId,
+            title,
+            "An Author",
+            confidence: 1m,
+            genre: "Fiction");
+        var service = new AudiobookOrganisationService(new StubOrganisationStore());
+
+        var result = await service.PrepareProposalsAsync(sourceId, [candidate]);
+
+        var proposal = Assert.IsType<AudiobookOrganisationProposal>(Assert.Single(result).OrganisationProposal);
+        Assert.False(proposal.ReadyForAutomaticHandling);
+        Assert.Contains(
+            proposal.Warnings,
+            warning => warning.Contains("chapter, track, disc, or part", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -291,7 +380,9 @@ public sealed class AudiobookOrganisationServiceTests
         decimal confidence = 0.95m,
         MetadataValueSource source = MetadataValueSource.EmbeddedTag,
         string? relativeDirectory = null,
-        string? genre = null)
+        string? genre = null,
+        string? album = null,
+        uint? trackNumber = null)
     {
         var now = DateTime.UtcNow;
         var parts = Enumerable.Range(1, partCount)
@@ -312,11 +403,13 @@ public sealed class AudiobookOrganisationServiceTests
                     item.FullPath,
                     new MetadataValue(title, source),
                     new MetadataValue(author, source),
-                    new MetadataValue(null, MetadataValueSource.None),
+                    new MetadataValue(
+                        album,
+                        album is null ? MetadataValueSource.None : MetadataValueSource.EmbeddedTag),
                     new MetadataValue(
                         genre,
                         genre is null ? MetadataValueSource.None : MetadataValueSource.EmbeddedTag),
-                    null,
+                    trackNumber is null ? null : trackNumber + (uint)(index - 1),
                     null,
                     null,
                     null,

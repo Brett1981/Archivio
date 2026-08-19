@@ -214,6 +214,62 @@ public sealed class AudiobookBatchPlanningServiceTests
                 StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task PrepareBatch_UsesDistinctEmbeddedTrackNumbersBeforeAlphabeticalPaths()
+    {
+        var first = CreateCandidate(
+            "plan-1",
+            "Author",
+            "Book",
+            ready: true,
+            sourceFile: "Zebra.mp3",
+            trackNumber: 1);
+        var second = CreateCandidate(
+            "plan-1",
+            "Author",
+            "Book",
+            ready: true,
+            sourceFile: "Alpha.mp3",
+            sourceId: first.SourceId,
+            root: first.Root,
+            trackNumber: 2);
+        var primaryProposal = first.Candidate.OrganisationProposal! with
+        {
+            RelatedCandidateCount = 2,
+            SourceFileCount = 2,
+            SuggestedFileNamePattern = "001 - Book{original extension}"
+        };
+        var candidates = new[]
+        {
+            first.Candidate with { OrganisationProposal = primaryProposal },
+            second.Candidate with
+            {
+                OrganisationProposal = primaryProposal with { IsPrimaryCandidate = false }
+            }
+        };
+        var service = new AudiobookBatchPlanningService(new StubDecisionStore());
+
+        var result = await service.PrepareBatchAsync(
+            first.SourceId,
+            first.Root,
+            candidates,
+            [first.Item, second.Item]);
+
+        var plan = Assert.IsType<AudiobookBatchPlan>(result[0].BatchPlan);
+        Assert.Collection(
+            plan.Operations,
+            operation =>
+            {
+                Assert.EndsWith("Zebra.mp3", operation.SourceRelativePath, StringComparison.Ordinal);
+                Assert.EndsWith("001 - Book.mp3", operation.DestinationRelativePath, StringComparison.Ordinal);
+            },
+            operation =>
+            {
+                Assert.EndsWith("Alpha.mp3", operation.SourceRelativePath, StringComparison.Ordinal);
+                Assert.EndsWith("002 - Book.mp3", operation.DestinationRelativePath, StringComparison.Ordinal);
+            });
+    }
+
     private static CandidateFixture CreateCandidate(
         string planKey,
         string author,
@@ -221,7 +277,8 @@ public sealed class AudiobookBatchPlanningServiceTests
         bool ready,
         string sourceFile = "Original.mp3",
         Guid? sourceId = null,
-        string? root = null)
+        string? root = null,
+        uint? trackNumber = null)
     {
         var librarySourceId = sourceId ?? Guid.NewGuid();
         var libraryRoot = root ?? Path.Combine(
@@ -245,7 +302,7 @@ public sealed class AudiobookBatchPlanningServiceTests
             new MetadataValue(null, MetadataValueSource.None),
             new MetadataValue(null, MetadataValueSource.None),
             null,
-            null,
+            trackNumber,
             null,
             null,
             null,

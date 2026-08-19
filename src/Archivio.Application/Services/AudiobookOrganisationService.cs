@@ -8,7 +8,7 @@ namespace Archivio.Application.Services;
 public sealed partial class AudiobookOrganisationService(
     IAudiobookOrganisationStore organisationStore) : IAudiobookOrganisationService
 {
-    private const string ProposalAlgorithmVersion = "audiobook-organisation-v3";
+    private const string ProposalAlgorithmVersion = "audiobook-organisation-v4";
     private static readonly HashSet<string> ReservedWindowsNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "CON", "PRN", "AUX", "NUL",
@@ -106,7 +106,8 @@ public sealed partial class AudiobookOrganisationService(
                 fileNamePattern,
                 sourceFileCount);
             var meaningfulTitle = IsMeaningfulTitle(canonicalTitle) &&
-                                  relatedCandidates.All(candidate => IsMeaningfulTitle(candidate.Title));
+                                  (identity.ResolvesSegmentTitles ||
+                                   relatedCandidates.All(candidate => IsMeaningfulTitle(candidate.Title)));
             var hasAuthoritativeLocalIdentity = relatedCandidates.All(candidate =>
                 IsAuthoritativeLocalSource(candidate.AuthorSource) &&
                 IsAuthoritativeLocalSource(candidate.TitleSource));
@@ -193,7 +194,7 @@ public sealed partial class AudiobookOrganisationService(
             var author = suggestion.Authors.Count > 0
                 ? string.Join(" & ", suggestion.Authors.Take(2))
                 : SelectCanonicalAuthor(candidates, null);
-            return new ResolvedBookIdentity(author, suggestion.Title, false, null, null);
+            return new ResolvedBookIdentity(author, suggestion.Title, false, true, null, null);
         }
 
         var folderIdentity = candidates
@@ -204,12 +205,116 @@ public sealed partial class AudiobookOrganisationService(
             return folderIdentity;
         }
 
+        var collectionIdentity = TryResolveCollectionIdentity(candidates);
+        if (collectionIdentity is not null)
+        {
+            return collectionIdentity;
+        }
+
+        var bookFolderIdentity = candidates
+            .Select(TryResolveBookIdentityFromFolder)
+            .FirstOrDefault(identity => identity is not null);
+        if (bookFolderIdentity is not null)
+        {
+            return bookFolderIdentity;
+        }
+
         return new ResolvedBookIdentity(
             SelectCanonicalAuthor(candidates, null),
             SelectCanonicalTitle(candidates, null),
             false,
+            false,
             null,
             null);
+    }
+
+    private static ResolvedBookIdentity? TryResolveCollectionIdentity(
+        IReadOnlyList<AudiobookCandidateGroup> candidates)
+    {
+        var albumValues = candidates
+            .SelectMany(candidate => candidate.Parts)
+            .Select(part => part.Metadata.Album)
+            .Where(album => album.Source == MetadataValueSource.EmbeddedTag &&
+                            IsMeaningfulCollectionTitle(album.Value))
+            .Select(album => album.Value!.Trim())
+            .GroupBy(Normalize, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .ToList();
+        if (albumValues.Count != 1)
+        {
+            return null;
+        }
+
+        var albumTitle = albumValues[0];
+        var hasCollectionEvidence = candidates.Any(candidate =>
+            IsSegmentTitle(candidate.Title) ||
+            candidate.IsMultipart ||
+            candidate.Parts.Any(part => part.Metadata.TrackNumber is not null) &&
+            !string.Equals(Normalize(candidate.Title), Normalize(albumTitle), StringComparison.Ordinal));
+        if (!hasCollectionEvidence)
+        {
+            return null;
+        }
+
+        return new ResolvedBookIdentity(
+            SelectCanonicalAuthor(candidates, null),
+            OnlineMetadataLookupService.PrepareLookupTitle(
+                albumTitle,
+                SelectCanonicalAuthor(candidates, null)),
+            false,
+            true,
+            "Canonical book title came from consistent embedded album metadata.",
+            null);
+    }
+
+    private static ResolvedBookIdentity? TryResolveBookIdentityFromFolder(
+        AudiobookCandidateGroup candidate)
+    {
+        if (string.IsNullOrWhiteSpace(candidate.Author) ||
+            !candidate.Parts.Any(part => part.Metadata.TrackNumber is not null) &&
+            !IsSegmentTitle(candidate.Title))
+        {
+            return null;
+        }
+
+        foreach (var part in candidate.Parts)
+        {
+            foreach (var folder in GetDirectoryFolders(part.MediaItem.RelativePath))
+            {
+                var folderMatch = AuthorTitleFolderRegex().Match(folder);
+                if (!folderMatch.Success)
+                {
+                    continue;
+                }
+
+                var folderAuthor = folderMatch.Groups["author"].Value.Trim();
+                if (!string.Equals(
+                    Normalize(folderAuthor),
+                    Normalize(candidate.Author),
+                    StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var folderTitle = OnlineMetadataLookupService.PrepareLookupTitle(
+                    folderMatch.Groups["title"].Value,
+                    folderAuthor);
+                if (!IsMeaningfulTitle(folderTitle))
+                {
+                    continue;
+                }
+
+                return new ResolvedBookIdentity(
+                    folderAuthor,
+                    folderTitle,
+                    false,
+                    true,
+                    "Canonical book identity came from the matching author/book folder.",
+                    null);
+            }
+        }
+
+        return null;
     }
 
     private static ResolvedBookIdentity? TryResolveNumberedBookLabelFromFolder(
@@ -229,16 +334,7 @@ public sealed partial class AudiobookOrganisationService(
         var numberedBookTitle = numberedLabelMatch.Groups["title"].Value.Trim();
         foreach (var part in candidate.Parts)
         {
-            var directory = Path.GetDirectoryName(part.MediaItem.RelativePath);
-            if (string.IsNullOrWhiteSpace(directory))
-            {
-                continue;
-            }
-
-            var folders = directory.Split(
-                [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
-                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            foreach (var folder in folders.Reverse())
+            foreach (var folder in GetDirectoryFolders(part.MediaItem.RelativePath))
             {
                 var folderMatch = AuthorTitleFolderRegex().Match(folder);
                 if (!folderMatch.Success)
@@ -262,12 +358,26 @@ public sealed partial class AudiobookOrganisationService(
                     folderAuthor,
                     folderTitle,
                     true,
+                    true,
                     "Canonical identity used the matching author/book folder because the embedded author field contains a numbered book label.",
                     "The embedded author/title fields appear to contain a numbered book label and chapter title; confirm the folder-derived identity before unattended handling.");
             }
         }
 
         return null;
+    }
+
+    private static IEnumerable<string> GetDirectoryFolders(string relativePath)
+    {
+        var directory = Path.GetDirectoryName(relativePath);
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return [];
+        }
+
+        return directory.Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Reverse();
     }
 
     private static string SelectCanonicalAuthor(
@@ -413,7 +523,7 @@ public sealed partial class AudiobookOrganisationService(
 
         if (!meaningfulTitle)
         {
-            warnings.Add("The inferred title appears to be a track or disc label.");
+            warnings.Add("The inferred title appears to be a chapter, track, disc, or part label.");
         }
 
         if (genreCategory == "Uncategorised")
@@ -452,7 +562,28 @@ public sealed partial class AudiobookOrganisationService(
     {
         var normalized = Normalize(title);
         return normalized.Length >= 3 &&
-               !GenericTrackTitleRegex().IsMatch(normalized);
+               !IsSegmentTitle(title);
+    }
+
+    private static bool IsMeaningfulCollectionTitle(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return false;
+        }
+
+        var normalized = Normalize(title);
+        return normalized.Length >= 3 &&
+               !GenericCollectionTitleRegex().IsMatch(normalized) &&
+               !IsSegmentTitle(title);
+    }
+
+    private static bool IsSegmentTitle(string title)
+    {
+        var normalized = Normalize(title);
+        return GenericTrackTitleRegex().IsMatch(normalized) ||
+               SegmentPrefixRegex().IsMatch(title) ||
+               SegmentSuffixRegex().IsMatch(title);
     }
 
     internal static string SanitizePathComponent(string value, string fallback)
@@ -513,6 +644,7 @@ public sealed partial class AudiobookOrganisationService(
         string Author,
         string Title,
         bool RequiresReview,
+        bool ResolvesSegmentTitles,
         string? DerivationReason,
         string? Warning);
 
@@ -525,8 +657,17 @@ public sealed partial class AudiobookOrganisationService(
     [GeneratedRegex(@"\s+")]
     private static partial Regex WhitespaceRegex();
 
-    [GeneratedRegex(@"^(?:audio\s*track|track|disc|disk|cd)\s*\d+$", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"^(?:audio\s*track|track|disc|disk|cd|chapter|ch|part)\s*[\p{L}\p{Nd}]+$", RegexOptions.IgnoreCase)]
     private static partial Regex GenericTrackTitleRegex();
+
+    [GeneratedRegex(@"^\s*(?:audio\s*track|chapter|ch|part|track|disc|disk|cd)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex SegmentPrefixRegex();
+
+    [GeneratedRegex(@"(?:^|\s[-–—:]?\s*)\d{1,4}\s*(?:of|/)\s*\d{1,4}\s*$", RegexOptions.IgnoreCase)]
+    private static partial Regex SegmentSuffixRegex();
+
+    [GeneratedRegex(@"^(?:audio\s*book|audiobook|book|unknown|untitled|various)$", RegexOptions.IgnoreCase)]
+    private static partial Regex GenericCollectionTitleRegex();
 
     [GeneratedRegex(@"^\s*\d{1,3}\s+(?<title>.+?)\s*$")]
     private static partial Regex NumberedBookLabelRegex();

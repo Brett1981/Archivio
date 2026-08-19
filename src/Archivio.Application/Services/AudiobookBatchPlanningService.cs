@@ -9,7 +9,7 @@ namespace Archivio.Application.Services;
 public sealed partial class AudiobookBatchPlanningService(
     IAudiobookBatchDecisionStore decisionStore) : IAudiobookBatchPlanningService
 {
-    private const string BatchAlgorithmVersion = "audiobook-batch-v1";
+    private const string BatchAlgorithmVersion = "audiobook-batch-v2";
 
     public async Task<IReadOnlyList<AudiobookCandidateGroup>> PrepareBatchAsync(
         Guid librarySourceId,
@@ -133,12 +133,20 @@ public sealed partial class AudiobookBatchPlanningService(
             .Select(candidate => candidate.OrganisationProposal)
             .FirstOrDefault(proposal => proposal?.IsPrimaryCandidate == true) ??
             candidates[0].OrganisationProposal!;
-        var parts = candidates
+        var uniqueParts = candidates
             .SelectMany(candidate => candidate.Parts)
             .GroupBy(part => part.MediaItem.Id)
             .Select(group => group.First())
-            .OrderBy(part => part.MediaItem.RelativePath, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(part => part.Sequence)
+            .ToList();
+        var hasReliableTrackOrder = uniqueParts.All(part => part.Metadata.TrackNumber is not null) &&
+                                    uniqueParts.Select(part => part.Metadata.TrackNumber!.Value)
+                                        .Distinct()
+                                        .Count() == uniqueParts.Count;
+        var parts = (hasReliableTrackOrder
+                ? uniqueParts.OrderBy(part => part.Metadata.TrackNumber!.Value)
+                    .ThenBy(part => part.MediaItem.RelativePath, StringComparer.OrdinalIgnoreCase)
+                : uniqueParts.OrderBy(part => part.MediaItem.RelativePath, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(part => part.Sequence))
             .ToList();
         var sourceIds = parts.Select(part => part.MediaItem.Id).ToHashSet();
         var warnings = new List<string>();
