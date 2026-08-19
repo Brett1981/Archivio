@@ -49,3 +49,12 @@ internal sealed class OnlineMetadataCacheEntity
     public DateTime RetrievedAtUtc { get; set; }
     public string? SuggestionJson { get; set; }
 }
+
+internal sealed class AudiobookOrganisationProposalEntity
+{
+    public string CandidateKey { get; set; } = string.Empty;
+    public Guid LibrarySourceId { get; set; }
+    public string InputSignature { get; set; } = string.Empty;
+    public DateTime GeneratedAtUtc { get; set; }
+    public string ProposalJson { get; set; } = string.Empty;
+}

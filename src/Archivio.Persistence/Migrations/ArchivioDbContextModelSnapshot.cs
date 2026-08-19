@@ -11,7 +11,7 @@ public partial class ArchivioDbContextModelSnapshot : ModelSnapshot
 {
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
-        modelBuilder.HasAnnotation("ProductVersion", "10.0.10");
+        modelBuilder.HasAnnotation("ProductVersion", "10.0.11");
 
         modelBuilder.Entity<AudiobookAnalysisRunEntity>(entity =>
         {
@@ -53,6 +53,18 @@ public partial class ArchivioDbContextModelSnapshot : ModelSnapshot
             entity.HasKey(x => x.MediaItemId);
             entity.HasIndex(x => x.LibrarySourceId);
             entity.ToTable("AudiobookMetadataCache");
+        });
+
+        modelBuilder.Entity<AudiobookOrganisationProposalEntity>(entity =>
+        {
+            entity.Property(x => x.CandidateKey).HasMaxLength(64).HasColumnType("TEXT");
+            entity.Property(x => x.GeneratedAtUtc).HasColumnType("TEXT");
+            entity.Property(x => x.InputSignature).IsRequired().HasMaxLength(64).HasColumnType("TEXT");
+            entity.Property(x => x.LibrarySourceId).HasColumnType("TEXT");
+            entity.Property(x => x.ProposalJson).IsRequired().HasColumnType("TEXT");
+            entity.HasKey(x => x.CandidateKey);
+            entity.HasIndex(x => x.LibrarySourceId);
+            entity.ToTable("AudiobookOrganisationProposals");
         });
 
         modelBuilder.Entity<LibrarySource>(entity =>
@@ -148,6 +160,13 @@ public partial class ArchivioDbContextModelSnapshot : ModelSnapshot
             .IsRequired();
 
         modelBuilder.Entity<OnlineMetadataCacheEntity>()
+            .HasOne<LibrarySource>()
+            .WithMany()
+            .HasForeignKey(x => x.LibrarySourceId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .IsRequired();
+
+        modelBuilder.Entity<AudiobookOrganisationProposalEntity>()
             .HasOne<LibrarySource>()
             .WithMany()
             .HasForeignKey(x => x.LibrarySourceId)

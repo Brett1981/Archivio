@@ -169,7 +169,9 @@
                         <TextBlock Foreground="#CBD5E1" Margin="0,0,14,0"><Run Text="{Binding MultipartAudiobookCount, Mode=OneWay}" /><Run Text=" multipart" /></TextBlock>
                         <TextBlock Foreground="#CBD5E1" Margin="0,0,14,0"><Run Text="{Binding SingleFileAudiobookCount, Mode=OneWay}" /><Run Text=" single" /></TextBlock>
                         <TextBlock Foreground="#F59E0B" Margin="0,0,14,0"><Run Text="{Binding AudiobooksNeedingReviewCount, Mode=OneWay}" /><Run Text=" need review" /></TextBlock>
-                        <TextBlock Foreground="#34D399"><Run Text="{Binding OnlineSuggestionCount, Mode=OneWay}" /><Run Text=" online suggestions" /></TextBlock>
+                        <TextBlock Foreground="#34D399" Margin="0,0,14,0"><Run Text="{Binding OnlineSuggestionCount, Mode=OneWay}" /><Run Text=" online suggestions" /></TextBlock>
+                        <TextBlock Foreground="#38BDF8" Margin="0,0,14,0"><Run Text="{Binding OrganisationPlanCount, Mode=OneWay}" /><Run Text=" plans" /></TextBlock>
+                        <TextBlock Foreground="#A7F3D0"><Run Text="{Binding AutomaticReadyPlanCount, Mode=OneWay}" /><Run Text=" automation-ready" /></TextBlock>
                     </WrapPanel>
                     <StackPanel Grid.Row="4">
                         <DockPanel>
@@ -182,13 +184,29 @@
                         <TextBlock Text="{Binding AudiobookAnalysisCurrentPath}" Foreground="#64748B" FontSize="10" Margin="0,4,0,0" TextTrimming="CharacterEllipsis" />
                         <TextBlock Text="{Binding AudiobookAnalysisStorageStatus}" Foreground="#94A3B8" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
                         <TextBlock Text="{Binding OnlineMetadataStatus}" Foreground="#34D399" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding OrganisationStatus}" Foreground="#38BDF8" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
                         <TextBox Text="{Binding AudiobookSearchText, UpdateSourceTrigger=PropertyChanged}" Padding="8,5" Margin="0,7,0,0" ToolTip="Search audiobook title, author, or file path" />
-                        <WrapPanel Margin="0,6,0,0">
-                            <CheckBox Content="Needs review" IsChecked="{Binding ShowAudiobooksNeedingReviewOnly}" Foreground="White" Margin="0,0,12,0" />
-                            <CheckBox Content="Metadata warnings" IsChecked="{Binding ShowAudiobookMetadataWarningsOnly}" Foreground="White" Margin="0,0,12,0" />
-                            <CheckBox Content="Multipart" IsChecked="{Binding ShowMultipartAudiobooksOnly}" Foreground="White" />
-                            <CheckBox Content="Online suggestions" IsChecked="{Binding ShowOnlineSuggestionsOnly}" Foreground="White" Margin="12,0,0,0" />
-                        </WrapPanel>
+                        <UniformGrid Columns="3" Margin="0,6,0,0">
+                            <UniformGrid.Resources>
+                                <Style TargetType="CheckBox">
+                                    <Setter Property="Foreground" Value="White" />
+                                    <Setter Property="Margin" Value="0,0,12,6" />
+                                    <Setter Property="VerticalAlignment" Value="Center" />
+                                </Style>
+                            </UniformGrid.Resources>
+                            <CheckBox Content="Needs review" IsChecked="{Binding ShowAudiobooksNeedingReviewOnly}"
+                                      ToolTip="Show candidates that still need review" />
+                            <CheckBox Content="Organisation plans" IsChecked="{Binding ShowOrganisationPlansOnly}"
+                                      ToolTip="Show primary organisation plans that are not marked Needs review" />
+                            <CheckBox Content="Automation-ready" IsChecked="{Binding ShowAutomaticReadyPlansOnly}"
+                                      ToolTip="Show plans eligible for future unattended handling" />
+                            <CheckBox Content="Metadata warnings" IsChecked="{Binding ShowAudiobookMetadataWarningsOnly}"
+                                      ToolTip="Also require one or more local metadata warnings" />
+                            <CheckBox Content="Multipart" IsChecked="{Binding ShowMultipartAudiobooksOnly}"
+                                      ToolTip="Also require more than one source file" />
+                            <CheckBox Content="Online suggestions" IsChecked="{Binding ShowOnlineSuggestionsOnly}"
+                                      ToolTip="Also require a saved online suggestion" />
+                        </UniformGrid>
                     </StackPanel>
                     <ListBox Grid.Row="6" ItemsSource="{Binding AudiobookCandidatesView}" SelectedItem="{Binding SelectedAudiobookCandidate}"
                              Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
@@ -204,6 +222,8 @@
                                             <TextBlock Text="{Binding MetadataStatusLabel}" Foreground="{StaticResource ArchivioAccent}" FontSize="10" Margin="0,2,0,0" />
                                             <TextBlock Text="{Binding MetadataProvenanceSummary}" Foreground="#64748B" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{Binding OnlineSuggestion.ProvenanceDisplay}" Foreground="#34D399" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding OrganisationProposal.ProposalSummary}" Foreground="#38BDF8" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding OrganisationProposal.DestinationDisplay}" Foreground="#64748B" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="1" Margin="10,0,0,0">
                                             <TextBlock Text="{Binding Confidence, StringFormat={}{0:P0}}" Foreground="{StaticResource ArchivioAccent}" HorizontalAlignment="Right" />
@@ -234,6 +254,24 @@
                                 </TextBlock>
                                 <TextBlock Text="{Binding OnlineSuggestion.SubjectDisplay}" Foreground="#64748B" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding OnlineSuggestion.MatchReason}" Foreground="#64748B" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                <TextBlock Text="Read-only organisation plan" Foreground="White" FontWeight="SemiBold" Margin="0,13,0,5" />
+                                <TextBlock Text="{Binding OrganisationProposal.CanonicalDisplay}" Foreground="#38BDF8" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <TextBlock Foreground="#CBD5E1" Margin="0,4,0,0" TextWrapping="Wrap">
+                                    <Run Text="{Binding OrganisationProposal.ActionLabel, Mode=OneWay}" /><Run Text="  ·  " />
+                                    <Run Text="{Binding OrganisationProposal.GenreCategory, Mode=OneWay}" /><Run Text="  ·  " />
+                                    <Run Text="{Binding OrganisationProposal.Confidence, Mode=OneWay, StringFormat={}{0:P0}}" />
+                                </TextBlock>
+                                <TextBlock Text="{Binding OrganisationProposal.GroupSummary}" Foreground="#94A3B8" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding OrganisationProposal.ReadinessLabel}" Foreground="#A7F3D0" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                <TextBlock Text="Suggested destination" Foreground="#CBD5E1" FontWeight="SemiBold" Margin="0,8,0,2" />
+                                <TextBlock Text="{Binding OrganisationProposal.DestinationDisplay}" Foreground="#38BDF8" FontFamily="Consolas" FontSize="10" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding OrganisationProposal.FutureOptionLabel}" Foreground="#94A3B8" FontSize="10" Margin="0,5,0,0" TextWrapping="Wrap" />
+                                <ItemsControl ItemsSource="{Binding OrganisationProposal.Reasons}" Margin="0,7,0,0"><ItemsControl.ItemTemplate><DataTemplate>
+                                    <TextBlock Text="{Binding StringFormat=• {0}}" Foreground="#CBD5E1" TextWrapping="Wrap" Margin="0,0,0,3" />
+                                </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                                <ItemsControl ItemsSource="{Binding OrganisationProposal.Warnings}" Margin="0,4,0,0"><ItemsControl.ItemTemplate><DataTemplate>
+                                    <TextBlock Text="{Binding StringFormat=⚠ {0}}" Foreground="#F59E0B" TextWrapping="Wrap" Margin="0,0,0,3" />
+                                </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
                                 <TextBlock Text="Confidence explanation" Foreground="White" FontWeight="SemiBold" Margin="0,13,0,6" />
                                 <ItemsControl ItemsSource="{Binding ConfidenceReasons}"><ItemsControl.ItemTemplate><DataTemplate>
                                     <TextBlock Text="{Binding StringFormat=• {0}}" Foreground="#CBD5E1" TextWrapping="Wrap" Margin="0,0,0,4" />

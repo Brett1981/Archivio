@@ -12,6 +12,7 @@ public sealed partial class MainWindowViewModel
 {
     private readonly IAudiobookAnalysisService _audiobookAnalysisService;
     private readonly IOnlineMetadataLookupService _onlineMetadataLookupService;
+    private readonly IAudiobookOrganisationService _audiobookOrganisationService;
     private CancellationTokenSource? _audiobookAnalysisCancellation;
     private ICollectionView? _audiobookCandidatesView;
 
@@ -40,6 +41,14 @@ public sealed partial class MainWindowViewModel
     public int SingleFileAudiobookCount => AudiobookCandidates.Count(candidate => !candidate.IsMultipart);
     public int AudiobooksNeedingReviewCount => AudiobookCandidates.Count(candidate => candidate.NeedsReview);
     public int OnlineSuggestionCount => AudiobookCandidates.Count(candidate => candidate.HasOnlineSuggestion);
+    public int OrganisationPlanCount => AudiobookCandidates.Count(candidate => candidate.IsPrimaryOrganisationPlan);
+    public int AutomaticReadyPlanCount => AudiobookCandidates.Count(candidate =>
+        candidate.IsPrimaryOrganisationPlan &&
+        candidate.OrganisationProposal?.ReadyForAutomaticHandling == true);
+    public int GroupedOrganisationPlanCount => AudiobookCandidates.Count(candidate =>
+        candidate.IsPrimaryOrganisationPlan &&
+        (candidate.OrganisationProposal?.RelatedCandidateCount > 1 ||
+         candidate.OrganisationProposal?.SourceFileCount > 1));
     public int AudiobookAnalysisProgressMaximum => Math.Max(1, AudiobookAnalysisTotalCount);
 
     [ObservableProperty]
@@ -72,6 +81,9 @@ public sealed partial class MainWindowViewModel
     private string _onlineMetadataStatus = "Online fallback has not run";
 
     [ObservableProperty]
+    private string _organisationStatus = "Organisation plans have not been prepared";
+
+    [ObservableProperty]
     private string _audiobookSearchText = string.Empty;
 
     [ObservableProperty]
@@ -86,6 +98,12 @@ public sealed partial class MainWindowViewModel
     [ObservableProperty]
     private bool _showOnlineSuggestionsOnly;
 
+    [ObservableProperty]
+    private bool _showOrganisationPlansOnly;
+
+    [ObservableProperty]
+    private bool _showAutomaticReadyPlansOnly;
+
     partial void OnAudiobookCandidatesChanged(ObservableCollection<AudiobookCandidateGroup> value)
     {
         _audiobookCandidatesView = null;
@@ -94,10 +112,42 @@ public sealed partial class MainWindowViewModel
     }
 
     partial void OnAudiobookSearchTextChanged(string value) => RefreshAudiobookCandidatesView();
-    partial void OnShowAudiobooksNeedingReviewOnlyChanged(bool value) => RefreshAudiobookCandidatesView();
+    partial void OnShowAudiobooksNeedingReviewOnlyChanged(bool value)
+    {
+        if (value)
+        {
+            ShowOrganisationPlansOnly = false;
+            ShowAutomaticReadyPlansOnly = false;
+        }
+
+        RefreshAudiobookCandidatesView();
+    }
+
     partial void OnShowAudiobookMetadataWarningsOnlyChanged(bool value) => RefreshAudiobookCandidatesView();
     partial void OnShowMultipartAudiobooksOnlyChanged(bool value) => RefreshAudiobookCandidatesView();
     partial void OnShowOnlineSuggestionsOnlyChanged(bool value) => RefreshAudiobookCandidatesView();
+
+    partial void OnShowOrganisationPlansOnlyChanged(bool value)
+    {
+        if (value)
+        {
+            ShowAudiobooksNeedingReviewOnly = false;
+            ShowAutomaticReadyPlansOnly = false;
+        }
+
+        RefreshAudiobookCandidatesView();
+    }
+
+    partial void OnShowAutomaticReadyPlansOnlyChanged(bool value)
+    {
+        if (value)
+        {
+            ShowAudiobooksNeedingReviewOnly = false;
+            ShowOrganisationPlansOnly = false;
+        }
+
+        RefreshAudiobookCandidatesView();
+    }
 
     partial void OnAudiobookAnalysisTotalCountChanged(int value) =>
         OnPropertyChanged(nameof(AudiobookAnalysisProgressMaximum));
@@ -152,7 +202,11 @@ public sealed partial class MainWindowViewModel
                     return;
                 }
 
-                AudiobookCandidates = new ObservableCollection<AudiobookCandidateGroup>(enrichedGroups);
+                var proposedGroups = await PrepareOrganisationProposalsAsync(
+                    sourceId.Value,
+                    enrichedGroups,
+                    cancellation.Token);
+                AudiobookCandidates = new ObservableCollection<AudiobookCandidateGroup>(proposedGroups);
                 SelectedAudiobookCandidate = AudiobookCandidates.FirstOrDefault();
                 NotifyAudiobookSummaryChanged();
             }
@@ -246,6 +300,36 @@ public sealed partial class MainWindowViewModel
         }
     }
 
+    private async Task<IReadOnlyList<AudiobookCandidateGroup>> PrepareOrganisationProposalsAsync(
+        Guid librarySourceId,
+        IReadOnlyList<AudiobookCandidateGroup> candidates,
+        CancellationToken cancellationToken)
+    {
+        OrganisationStatus = "Preparing read-only organisation plans...";
+        try
+        {
+            var result = await _audiobookOrganisationService.PrepareProposalsAsync(
+                librarySourceId,
+                candidates,
+                cancellationToken);
+            var planCount = result.Count(candidate => candidate.IsPrimaryOrganisationPlan);
+            var readyCount = result.Count(candidate =>
+                candidate.IsPrimaryOrganisationPlan &&
+                candidate.OrganisationProposal?.ReadyForAutomaticHandling == true);
+            OrganisationStatus = $"Prepared {planCount:N0} read-only plans · {readyCount:N0} ready for future automation";
+            return result;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            OrganisationStatus = $"Organisation plans unavailable: {exception.Message}";
+            return candidates;
+        }
+    }
+
     private async Task LoadSavedAudiobookAnalysisAsync(
         Guid librarySourceId,
         IReadOnlyList<MediaItem> mediaItems)
@@ -254,6 +338,12 @@ public sealed partial class MainWindowViewModel
         try
         {
             var saved = await _audiobookAnalysisService.LoadSavedAnalysisAsync(mediaItems);
+            var preparedCandidates = saved is null
+                ? null
+                : await PrepareOrganisationProposalsAsync(
+                    librarySourceId,
+                    saved.Candidates,
+                    CancellationToken.None);
             RunOnUiThread(() =>
             {
                 if (SelectedSource?.Id != librarySourceId)
@@ -268,7 +358,7 @@ public sealed partial class MainWindowViewModel
                     return;
                 }
 
-                AudiobookCandidates = new ObservableCollection<AudiobookCandidateGroup>(saved.Candidates);
+                AudiobookCandidates = new ObservableCollection<AudiobookCandidateGroup>(preparedCandidates!);
                 SelectedAudiobookCandidate = AudiobookCandidates.FirstOrDefault();
                 AudiobookAnalysisProcessedCount = saved.Candidates.Sum(candidate => candidate.Parts.Count);
                 AudiobookAnalysisTotalCount = AudiobookAnalysisProcessedCount;
@@ -310,6 +400,7 @@ public sealed partial class MainWindowViewModel
         AudiobookAnalysisStatus = "Ready to analyse indexed audio";
         AudiobookAnalysisStorageStatus = "Analysis has not been saved";
         OnlineMetadataStatus = "Online fallback has not run";
+        OrganisationStatus = "Organisation plans have not been prepared";
         NotifyAudiobookSummaryChanged();
     }
 
@@ -341,9 +432,30 @@ public sealed partial class MainWindowViewModel
             return false;
         }
 
+        if (ShowOrganisationPlansOnly && !candidate.IsReviewClearedOrganisationPlan)
+        {
+            return false;
+        }
+
+        if (ShowAutomaticReadyPlansOnly &&
+            (!candidate.IsPrimaryOrganisationPlan ||
+             candidate.OrganisationProposal?.ReadyForAutomaticHandling != true))
+        {
+            return false;
+        }
+
         var search = AudiobookSearchText.Trim();
         return search.Length == 0 ||
             candidate.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+            (candidate.OrganisationProposal?.CanonicalDisplay.Contains(
+                search,
+                StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (candidate.OrganisationProposal?.SuggestedRelativeFolder.Contains(
+                search,
+                StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (candidate.OrganisationProposal?.GenreCategory.Contains(
+                search,
+                StringComparison.OrdinalIgnoreCase) ?? false) ||
             candidate.Parts.Any(part =>
                 part.MediaItem.FileName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
                 part.MediaItem.RelativePath.Contains(search, StringComparison.OrdinalIgnoreCase));
@@ -362,5 +474,8 @@ public sealed partial class MainWindowViewModel
         OnPropertyChanged(nameof(SingleFileAudiobookCount));
         OnPropertyChanged(nameof(AudiobooksNeedingReviewCount));
         OnPropertyChanged(nameof(OnlineSuggestionCount));
+        OnPropertyChanged(nameof(OrganisationPlanCount));
+        OnPropertyChanged(nameof(AutomaticReadyPlanCount));
+        OnPropertyChanged(nameof(GroupedOrganisationPlanCount));
     }
 }

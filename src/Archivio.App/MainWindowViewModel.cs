@@ -23,7 +23,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         IBackgroundScanService backgroundScanService,
         IMediaCatalogueService mediaCatalogueService,
         IAudiobookAnalysisService audiobookAnalysisService,
-        IOnlineMetadataLookupService onlineMetadataLookupService)
+        IOnlineMetadataLookupService onlineMetadataLookupService,
+        IAudiobookOrganisationService audiobookOrganisationService)
     {
         _librarySourceService = librarySourceService;
         _folderPickerService = folderPickerService;
@@ -31,6 +32,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _mediaCatalogueService = mediaCatalogueService;
         _audiobookAnalysisService = audiobookAnalysisService;
         _onlineMetadataLookupService = onlineMetadataLookupService;
+        _audiobookOrganisationService = audiobookOrganisationService;
         _backgroundScanService.ProgressChanged += HandleScanProgress;
         _backgroundScanService.ScanCompleted += HandleScanCompleted;
         _backgroundScanService.ScanFailed += HandleScanFailed;

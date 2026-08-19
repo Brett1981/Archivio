@@ -85,9 +85,37 @@ public sealed class AudiobookAnalysisStoreTests
                 OnlineMetadataIdentity.CreateInputSignature(candidate.Title, candidate.Author),
                 now,
                 onlineSuggestion)]);
+        var organisationProposal = new AudiobookOrganisationProposal(
+            "plan-key",
+            "Author",
+            "Book",
+            2000,
+            "Fiction",
+            Path.Combine("Fiction", "Author", "Book (2000)"),
+            "Author - Book.m4b",
+            AudiobookOrganisationAction.MoveAndRename,
+            1,
+            1,
+            true,
+            true,
+            1m,
+            true,
+            false,
+            ["Canonical identity came from Open Library."],
+            [],
+            now);
+        var organisationStore = new AudiobookOrganisationStore(factory);
+        await organisationStore.SaveAsync(
+            source.Id,
+            [new AudiobookOrganisationCacheEntry(
+                candidate.CandidateKey,
+                "proposal-signature",
+                now,
+                organisationProposal)]);
 
         var cached = await store.LoadMetadataCacheAsync(source.Id);
         var onlineCached = await store.LoadOnlineMetadataCacheAsync(source.Id);
+        var organisationCached = await organisationStore.LoadAsync(source.Id);
         var saved = await store.LoadCompletedAnalysisAsync(source.Id, [item]);
 
         Assert.Equal("Book", cached[item.Id].Metadata.Title.Value);
@@ -95,6 +123,9 @@ public sealed class AudiobookAnalysisStoreTests
         Assert.Equal("Author - Book", Assert.Single(saved.Candidates).DisplayName);
         Assert.Equal("Book", Assert.Single(saved.Candidates).OnlineSuggestion?.Title);
         Assert.Equal("Book", onlineCached[candidate.CandidateKey].Suggestion?.Title);
+        Assert.Equal(
+            "Book",
+            organisationCached[candidate.CandidateKey].Proposal.CanonicalTitle);
         Assert.Equal(item.Id, Assert.Single(Assert.Single(saved.Candidates).Parts).MediaItem.Id);
 
         item.Refresh(

@@ -16,6 +16,7 @@ public sealed record AudiobookCandidateGroup(
     IReadOnlyList<string> Warnings)
 {
     public OnlineMetadataSuggestion? OnlineSuggestion { get; init; }
+    public AudiobookOrganisationProposal? OrganisationProposal { get; init; }
     public bool IsMultipart => Parts.Count > 1;
     public bool NeedsReview => Confidence < 0.80m || Warnings.Count > 0;
     public string TypeLabel => IsMultipart ? "Multipart" : "Single file";
@@ -28,6 +29,9 @@ public sealed record AudiobookCandidateGroup(
         ? "Local metadata loaded"
         : "Select to load local metadata";
     public bool HasOnlineSuggestion => OnlineSuggestion is not null;
+    public bool HasOrganisationProposal => OrganisationProposal is not null;
+    public bool IsPrimaryOrganisationPlan => OrganisationProposal?.IsPrimaryCandidate == true;
+    public bool IsReviewClearedOrganisationPlan => IsPrimaryOrganisationPlan && !NeedsReview;
     public string OnlineSuggestionLabel => OnlineSuggestion is null
         ? "No online suggestion"
         : OnlineSuggestion.ProvenanceDisplay;
