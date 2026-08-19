@@ -171,7 +171,10 @@
                         <TextBlock Foreground="#F59E0B" Margin="0,0,14,0"><Run Text="{Binding AudiobooksNeedingReviewCount, Mode=OneWay}" /><Run Text=" need review" /></TextBlock>
                         <TextBlock Foreground="#34D399" Margin="0,0,14,0"><Run Text="{Binding OnlineSuggestionCount, Mode=OneWay}" /><Run Text=" online suggestions" /></TextBlock>
                         <TextBlock Foreground="#38BDF8" Margin="0,0,14,0"><Run Text="{Binding OrganisationPlanCount, Mode=OneWay}" /><Run Text=" plans" /></TextBlock>
-                        <TextBlock Foreground="#A7F3D0"><Run Text="{Binding AutomaticReadyPlanCount, Mode=OneWay}" /><Run Text=" automation-ready" /></TextBlock>
+                        <TextBlock Foreground="#A7F3D0" Margin="0,0,14,0"><Run Text="{Binding AutomaticReadyPlanCount, Mode=OneWay}" /><Run Text=" automation-ready" /></TextBlock>
+                        <TextBlock Foreground="#22D3EE" Margin="0,0,14,0"><Run Text="{Binding BatchReadyCount, Mode=OneWay}" /><Run Text=" batch-safe" /></TextBlock>
+                        <TextBlock Foreground="#C4B5FD" Margin="0,0,14,0"><Run Text="{Binding BatchApprovedCount, Mode=OneWay}" /><Run Text=" approved" /></TextBlock>
+                        <TextBlock Foreground="#F59E0B"><Run Text="{Binding BatchBlockedCount, Mode=OneWay}" /><Run Text=" blocked" /></TextBlock>
                     </WrapPanel>
                     <StackPanel Grid.Row="4">
                         <DockPanel>
@@ -185,6 +188,7 @@
                         <TextBlock Text="{Binding AudiobookAnalysisStorageStatus}" Foreground="#94A3B8" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
                         <TextBlock Text="{Binding OnlineMetadataStatus}" Foreground="#34D399" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
                         <TextBlock Text="{Binding OrganisationStatus}" Foreground="#38BDF8" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding BatchPlanningStatus}" Foreground="#C4B5FD" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
                         <TextBox Text="{Binding AudiobookSearchText, UpdateSourceTrigger=PropertyChanged}" Padding="8,5" Margin="0,7,0,0" ToolTip="Search audiobook title, author, or file path" />
                         <UniformGrid Columns="3" Margin="0,6,0,0">
                             <UniformGrid.Resources>
@@ -207,6 +211,16 @@
                             <CheckBox Content="Online suggestions" IsChecked="{Binding ShowOnlineSuggestionsOnly}"
                                       ToolTip="Also require a saved online suggestion" />
                         </UniformGrid>
+                        <UniformGrid Columns="3" Margin="0,2,0,0">
+                            <Button Content="Approve all safe" Command="{Binding ApproveSafeBatchCommand}" Padding="8,5" Margin="0,0,8,0"
+                                    ToolTip="Save approval for every conflict-free plan; this does not change media files" />
+                            <Button Content="Defer blocked" Command="{Binding DeferBlockedBatchCommand}" Padding="8,5" Margin="0,0,8,0"
+                                    ToolTip="Mark review-required and conflicting plans as deferred" />
+                            <Button Content="Reset decisions" Command="{Binding ResetBatchDecisionsCommand}" Padding="8,5"
+                                    ToolTip="Return all saved batch decisions to pending" />
+                        </UniformGrid>
+                        <TextBlock Text="Dry run only — approvals are stored in Archivio; no media files are moved or renamed."
+                                   Foreground="#94A3B8" FontSize="9" Margin="0,5,0,0" TextWrapping="Wrap" />
                     </StackPanel>
                     <ListBox Grid.Row="6" ItemsSource="{Binding AudiobookCandidatesView}" SelectedItem="{Binding SelectedAudiobookCandidate}"
                              Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
@@ -224,6 +238,8 @@
                                             <TextBlock Text="{Binding OnlineSuggestion.ProvenanceDisplay}" Foreground="#34D399" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{Binding OrganisationProposal.ProposalSummary}" Foreground="#38BDF8" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{Binding OrganisationProposal.DestinationDisplay}" Foreground="#64748B" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding BatchPlan.Summary}" Foreground="#C4B5FD" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding BatchPlan.DecisionLabel}" Foreground="#94A3B8" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="1" Margin="10,0,0,0">
                                             <TextBlock Text="{Binding Confidence, StringFormat={}{0:P0}}" Foreground="{StaticResource ArchivioAccent}" HorizontalAlignment="Right" />
@@ -271,6 +287,20 @@
                                 </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
                                 <ItemsControl ItemsSource="{Binding OrganisationProposal.Warnings}" Margin="0,4,0,0"><ItemsControl.ItemTemplate><DataTemplate>
                                     <TextBlock Text="{Binding StringFormat=⚠ {0}}" Foreground="#F59E0B" TextWrapping="Wrap" Margin="0,0,0,3" />
+                                </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                                <TextBlock Text="Batch dry run" Foreground="White" FontWeight="SemiBold" Margin="0,13,0,5" />
+                                <TextBlock Text="{Binding BatchPlan.ValidationLabel}" Foreground="#C4B5FD" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding BatchPlan.DecisionLabel}" Foreground="#94A3B8" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                <ItemsControl ItemsSource="{Binding BatchPlan.Warnings}" Margin="0,5,0,0"><ItemsControl.ItemTemplate><DataTemplate>
+                                    <TextBlock Text="{Binding StringFormat=⚠ {0}}" Foreground="#F59E0B" TextWrapping="Wrap" Margin="0,0,0,3" />
+                                </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                                <ItemsControl ItemsSource="{Binding BatchPlan.Operations}" Margin="0,7,0,0"><ItemsControl.ItemTemplate><DataTemplate>
+                                    <Border Background="#111C31" CornerRadius="4" Padding="7" Margin="0,0,0,5">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding KindLabel}" Foreground="#22D3EE" FontSize="10" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding Display}" Foreground="#CBD5E1" FontFamily="Consolas" FontSize="9" Margin="0,2,0,0" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
                                 </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
                                 <TextBlock Text="Confidence explanation" Foreground="White" FontWeight="SemiBold" Margin="0,13,0,6" />
                                 <ItemsControl ItemsSource="{Binding ConfidenceReasons}"><ItemsControl.ItemTemplate><DataTemplate>

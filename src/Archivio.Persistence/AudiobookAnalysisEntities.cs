@@ -58,3 +58,12 @@ internal sealed class AudiobookOrganisationProposalEntity
     public DateTime GeneratedAtUtc { get; set; }
     public string ProposalJson { get; set; } = string.Empty;
 }
+
+internal sealed class AudiobookBatchDecisionEntity
+{
+    public Guid LibrarySourceId { get; set; }
+    public string PlanKey { get; set; } = string.Empty;
+    public string InputSignature { get; set; } = string.Empty;
+    public int Decision { get; set; }
+    public DateTime UpdatedAtUtc { get; set; }
+}

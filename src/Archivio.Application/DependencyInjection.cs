@@ -22,6 +22,7 @@ public static class DependencyInjection
         services.AddSingleton<IBookMetadataProvider, OpenLibraryMetadataProvider>();
         services.AddSingleton<IOnlineMetadataLookupService, OnlineMetadataLookupService>();
         services.AddSingleton<IAudiobookOrganisationService, AudiobookOrganisationService>();
+        services.AddSingleton<IAudiobookBatchPlanningService, AudiobookBatchPlanningService>();
 
         return services;
     }

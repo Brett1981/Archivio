@@ -17,6 +17,7 @@ public sealed record AudiobookCandidateGroup(
 {
     public OnlineMetadataSuggestion? OnlineSuggestion { get; init; }
     public AudiobookOrganisationProposal? OrganisationProposal { get; init; }
+    public AudiobookBatchPlan? BatchPlan { get; init; }
     public bool IsMultipart => Parts.Count > 1;
     public bool NeedsReview => Confidence < 0.80m || Warnings.Count > 0;
     public string TypeLabel => IsMultipart ? "Multipart" : "Single file";
@@ -32,6 +33,7 @@ public sealed record AudiobookCandidateGroup(
     public bool HasOrganisationProposal => OrganisationProposal is not null;
     public bool IsPrimaryOrganisationPlan => OrganisationProposal?.IsPrimaryCandidate == true;
     public bool IsReviewClearedOrganisationPlan => IsPrimaryOrganisationPlan && !NeedsReview;
+    public bool HasBatchPlan => BatchPlan is not null;
     public string OnlineSuggestionLabel => OnlineSuggestion is null
         ? "No online suggestion"
         : OnlineSuggestion.ProvenanceDisplay;

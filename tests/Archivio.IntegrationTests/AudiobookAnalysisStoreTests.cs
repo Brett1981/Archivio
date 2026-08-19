@@ -112,10 +112,19 @@ public sealed class AudiobookAnalysisStoreTests
                 "proposal-signature",
                 now,
                 organisationProposal)]);
+        var batchDecisionStore = new AudiobookBatchDecisionStore(factory);
+        await batchDecisionStore.SaveAsync(
+            source.Id,
+            [new AudiobookBatchDecisionEntry(
+                organisationProposal.PlanKey,
+                "batch-signature",
+                AudiobookBatchDecision.Approved,
+                now)]);
 
         var cached = await store.LoadMetadataCacheAsync(source.Id);
         var onlineCached = await store.LoadOnlineMetadataCacheAsync(source.Id);
         var organisationCached = await organisationStore.LoadAsync(source.Id);
+        var batchDecisions = await batchDecisionStore.LoadAsync(source.Id);
         var saved = await store.LoadCompletedAnalysisAsync(source.Id, [item]);
 
         Assert.Equal("Book", cached[item.Id].Metadata.Title.Value);
@@ -126,6 +135,9 @@ public sealed class AudiobookAnalysisStoreTests
         Assert.Equal(
             "Book",
             organisationCached[candidate.CandidateKey].Proposal.CanonicalTitle);
+        Assert.Equal(
+            AudiobookBatchDecision.Approved,
+            batchDecisions[organisationProposal.PlanKey].Decision);
         Assert.Equal(item.Id, Assert.Single(Assert.Single(saved.Candidates).Parts).MediaItem.Id);
 
         item.Refresh(

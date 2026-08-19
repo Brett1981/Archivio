@@ -13,6 +13,7 @@ public sealed partial class MainWindowViewModel
     private readonly IAudiobookAnalysisService _audiobookAnalysisService;
     private readonly IOnlineMetadataLookupService _onlineMetadataLookupService;
     private readonly IAudiobookOrganisationService _audiobookOrganisationService;
+    private readonly IAudiobookBatchPlanningService _audiobookBatchPlanningService;
     private CancellationTokenSource? _audiobookAnalysisCancellation;
     private ICollectionView? _audiobookCandidatesView;
 
@@ -49,6 +50,16 @@ public sealed partial class MainWindowViewModel
         candidate.IsPrimaryOrganisationPlan &&
         (candidate.OrganisationProposal?.RelatedCandidateCount > 1 ||
          candidate.OrganisationProposal?.SourceFileCount > 1));
+    public int BatchPlanCount => AudiobookCandidates.Count(candidate =>
+        candidate.IsPrimaryOrganisationPlan && candidate.BatchPlan is not null);
+    public int BatchReadyCount => AudiobookCandidates.Count(candidate =>
+        candidate.IsPrimaryOrganisationPlan &&
+        candidate.BatchPlan?.ValidationStatus == AudiobookBatchValidationStatus.Ready);
+    public int BatchApprovedCount => AudiobookCandidates.Count(candidate =>
+        candidate.IsPrimaryOrganisationPlan &&
+        candidate.BatchPlan?.Decision == AudiobookBatchDecision.Approved);
+    public int BatchBlockedCount => AudiobookCandidates.Count(candidate =>
+        candidate.IsPrimaryOrganisationPlan && candidate.BatchPlan?.IsBlocked == true);
     public int AudiobookAnalysisProgressMaximum => Math.Max(1, AudiobookAnalysisTotalCount);
 
     [ObservableProperty]
@@ -82,6 +93,9 @@ public sealed partial class MainWindowViewModel
 
     [ObservableProperty]
     private string _organisationStatus = "Organisation plans have not been prepared";
+
+    [ObservableProperty]
+    private string _batchPlanningStatus = "Batch dry run has not been prepared";
 
     [ObservableProperty]
     private string _audiobookSearchText = string.Empty;
@@ -300,6 +314,122 @@ public sealed partial class MainWindowViewModel
         }
     }
 
+    private async Task<IReadOnlyList<AudiobookCandidateGroup>> PrepareBatchPreviewAsync(
+        Guid librarySourceId,
+        IReadOnlyList<AudiobookCandidateGroup> candidates,
+        CancellationToken cancellationToken)
+    {
+        if (SelectedSource?.Id != librarySourceId)
+        {
+            return candidates;
+        }
+
+        BatchPlanningStatus = "Preparing whole-library dry run...";
+        try
+        {
+            var result = await _audiobookBatchPlanningService.PrepareBatchAsync(
+                librarySourceId,
+                SelectedSource.Path,
+                candidates,
+                MediaItems.ToList(),
+                cancellationToken);
+            UpdateBatchPlanningStatus(result, "Dry run prepared");
+            return result;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            BatchPlanningStatus = $"Batch dry run unavailable: {exception.Message}";
+            return candidates;
+        }
+    }
+
+    [RelayCommand]
+    private async Task ApproveSafeBatchAsync()
+    {
+        var keys = AudiobookCandidates
+            .Where(candidate => candidate.IsPrimaryOrganisationPlan &&
+                                candidate.BatchPlan?.ValidationStatus == AudiobookBatchValidationStatus.Ready)
+            .Select(candidate => candidate.BatchPlan!.PlanKey)
+            .ToList();
+        await ApplyBatchDecisionAsync(keys, AudiobookBatchDecision.Approved, "Approved all safe plans");
+    }
+
+    [RelayCommand]
+    private async Task DeferBlockedBatchAsync()
+    {
+        var keys = AudiobookCandidates
+            .Where(candidate => candidate.IsPrimaryOrganisationPlan && candidate.BatchPlan?.IsBlocked == true)
+            .Select(candidate => candidate.BatchPlan!.PlanKey)
+            .ToList();
+        await ApplyBatchDecisionAsync(keys, AudiobookBatchDecision.Deferred, "Deferred blocked plans");
+    }
+
+    [RelayCommand]
+    private async Task ResetBatchDecisionsAsync()
+    {
+        var keys = AudiobookCandidates
+            .Where(candidate => candidate.IsPrimaryOrganisationPlan && candidate.BatchPlan is not null)
+            .Select(candidate => candidate.BatchPlan!.PlanKey)
+            .ToList();
+        await ApplyBatchDecisionAsync(keys, AudiobookBatchDecision.Pending, "Reset batch decisions");
+    }
+
+    private async Task ApplyBatchDecisionAsync(
+        IReadOnlyCollection<string> planKeys,
+        AudiobookBatchDecision decision,
+        string statusPrefix)
+    {
+        if (IsAudiobookAnalysisRunning)
+        {
+            BatchPlanningStatus = "Wait for audiobook analysis and dry-run preparation to finish";
+            return;
+        }
+
+        if (SelectedSource is null || planKeys.Count == 0)
+        {
+            UpdateBatchPlanningStatus(AudiobookCandidates, statusPrefix);
+            return;
+        }
+
+        var selectedKey = SelectedAudiobookCandidate?.CandidateKey;
+        try
+        {
+            var updated = await _audiobookBatchPlanningService.SetDecisionAsync(
+                SelectedSource.Id,
+                AudiobookCandidates.ToList(),
+                planKeys,
+                decision);
+            AudiobookCandidates = new ObservableCollection<AudiobookCandidateGroup>(updated);
+            SelectedAudiobookCandidate = selectedKey is null
+                ? AudiobookCandidates.FirstOrDefault()
+                : AudiobookCandidates.FirstOrDefault(candidate => candidate.CandidateKey == selectedKey);
+            NotifyAudiobookSummaryChanged();
+            UpdateBatchPlanningStatus(updated, statusPrefix);
+        }
+        catch (Exception exception)
+        {
+            BatchPlanningStatus = $"Batch decision could not be saved: {exception.Message}";
+        }
+    }
+
+    private void UpdateBatchPlanningStatus(
+        IReadOnlyCollection<AudiobookCandidateGroup> candidates,
+        string prefix)
+    {
+        var primaryPlans = candidates
+            .Where(candidate => candidate.IsPrimaryOrganisationPlan && candidate.BatchPlan is not null)
+            .Select(candidate => candidate.BatchPlan!)
+            .ToList();
+        var ready = primaryPlans.Count(plan => plan.ValidationStatus == AudiobookBatchValidationStatus.Ready);
+        var approved = primaryPlans.Count(plan => plan.Decision == AudiobookBatchDecision.Approved);
+        var blocked = primaryPlans.Count(plan => plan.IsBlocked);
+        BatchPlanningStatus = $"{prefix}: {ready:N0} safe · {approved:N0} approved · {blocked:N0} blocked · no files changed";
+    }
+
     private async Task<IReadOnlyList<AudiobookCandidateGroup>> PrepareOrganisationProposalsAsync(
         Guid librarySourceId,
         IReadOnlyList<AudiobookCandidateGroup> candidates,
@@ -317,7 +447,7 @@ public sealed partial class MainWindowViewModel
                 candidate.IsPrimaryOrganisationPlan &&
                 candidate.OrganisationProposal?.ReadyForAutomaticHandling == true);
             OrganisationStatus = $"Prepared {planCount:N0} read-only plans · {readyCount:N0} ready for future automation";
-            return result;
+            return await PrepareBatchPreviewAsync(librarySourceId, result, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -401,6 +531,7 @@ public sealed partial class MainWindowViewModel
         AudiobookAnalysisStorageStatus = "Analysis has not been saved";
         OnlineMetadataStatus = "Online fallback has not run";
         OrganisationStatus = "Organisation plans have not been prepared";
+        BatchPlanningStatus = "Batch dry run has not been prepared";
         NotifyAudiobookSummaryChanged();
     }
 
@@ -477,5 +608,9 @@ public sealed partial class MainWindowViewModel
         OnPropertyChanged(nameof(OrganisationPlanCount));
         OnPropertyChanged(nameof(AutomaticReadyPlanCount));
         OnPropertyChanged(nameof(GroupedOrganisationPlanCount));
+        OnPropertyChanged(nameof(BatchPlanCount));
+        OnPropertyChanged(nameof(BatchReadyCount));
+        OnPropertyChanged(nameof(BatchApprovedCount));
+        OnPropertyChanged(nameof(BatchBlockedCount));
     }
 }

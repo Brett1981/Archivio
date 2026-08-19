@@ -14,6 +14,8 @@ public sealed class ArchivioDbContext(DbContextOptions<ArchivioDbContext> option
     internal DbSet<OnlineMetadataCacheEntity> OnlineMetadataCache => Set<OnlineMetadataCacheEntity>();
     internal DbSet<AudiobookOrganisationProposalEntity> AudiobookOrganisationProposals =>
         Set<AudiobookOrganisationProposalEntity>();
+    internal DbSet<AudiobookBatchDecisionEntity> AudiobookBatchDecisions =>
+        Set<AudiobookBatchDecisionEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -136,6 +138,20 @@ public sealed class ArchivioDbContext(DbContextOptions<ArchivioDbContext> option
             entity.Property(x => x.GeneratedAtUtc).IsRequired();
             entity.Property(x => x.ProposalJson).IsRequired();
             entity.HasIndex(x => x.LibrarySourceId);
+            entity.HasOne<LibrarySource>()
+                .WithMany()
+                .HasForeignKey(x => x.LibrarySourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AudiobookBatchDecisionEntity>(entity =>
+        {
+            entity.ToTable("AudiobookBatchDecisions");
+            entity.HasKey(x => new { x.LibrarySourceId, x.PlanKey });
+            entity.Property(x => x.PlanKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.InputSignature).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Decision).IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).IsRequired();
             entity.HasOne<LibrarySource>()
                 .WithMany()
                 .HasForeignKey(x => x.LibrarySourceId)

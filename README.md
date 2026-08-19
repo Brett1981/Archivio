@@ -36,6 +36,10 @@ This milestone adds the first complete user-facing Archivio workflow:
 
 Archivio stores only the selected folder metadata during this milestone. It does not scan, rename, move, delete, or otherwise modify files inside a library source.
 
+## Audiobook batch dry run
+
+Archivio can turn saved audiobook organisation proposals into a whole-library dry-run queue. The queue expands each plan into file-level source and destination paths, detects missing sources and destination conflicts, and stores bulk approval or deferral decisions in SQLite. Approvals are preparation records only: this stage does not create folders, move, rename, combine, delete, or otherwise modify media files.
+
 ## Requirements
 
 - Windows 10/11

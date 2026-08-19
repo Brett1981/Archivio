@@ -23,6 +23,7 @@ public static class DependencyInjection
         services.AddScoped<IMediaItemRepository, MediaItemRepository>();
         services.AddSingleton<IAudiobookAnalysisStore, AudiobookAnalysisStore>();
         services.AddSingleton<IAudiobookOrganisationStore, AudiobookOrganisationStore>();
+        services.AddSingleton<IAudiobookBatchDecisionStore, AudiobookBatchDecisionStore>();
         services.AddSingleton<IDatabaseInitializer, DatabaseInitializer>();
         return services;
     }

@@ -42,6 +42,17 @@ public partial class ArchivioDbContextModelSnapshot : ModelSnapshot
             entity.ToTable("AudiobookCandidateSnapshots");
         });
 
+        modelBuilder.Entity<AudiobookBatchDecisionEntity>(entity =>
+        {
+            entity.Property(x => x.LibrarySourceId).HasColumnType("TEXT");
+            entity.Property(x => x.PlanKey).HasMaxLength(64).HasColumnType("TEXT");
+            entity.Property(x => x.Decision).HasColumnType("INTEGER");
+            entity.Property(x => x.InputSignature).IsRequired().HasMaxLength(64).HasColumnType("TEXT");
+            entity.Property(x => x.UpdatedAtUtc).HasColumnType("TEXT");
+            entity.HasKey(x => new { x.LibrarySourceId, x.PlanKey });
+            entity.ToTable("AudiobookBatchDecisions");
+        });
+
         modelBuilder.Entity<AudiobookMetadataCacheEntity>(entity =>
         {
             entity.Property(x => x.MediaItemId).HasColumnType("TEXT");
@@ -142,6 +153,13 @@ public partial class ArchivioDbContextModelSnapshot : ModelSnapshot
             .HasOne<AudiobookAnalysisRunEntity>()
             .WithMany()
             .HasForeignKey(x => x.AnalysisRunId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .IsRequired();
+
+        modelBuilder.Entity<AudiobookBatchDecisionEntity>()
+            .HasOne<LibrarySource>()
+            .WithMany()
+            .HasForeignKey(x => x.LibrarySourceId)
             .OnDelete(DeleteBehavior.Cascade)
             .IsRequired();
 
