@@ -1,6 +1,8 @@
-# Archivio
+# Metaroq
 
-Archivio is a personal digital archivist for safely cataloguing, understanding, and eventually organising media collections.
+**Media that finally makes sense.**
+
+Metaroq is a personal media-intelligence application for safely cataloguing, understanding, and eventually organising complex collections.
 
 ## Milestone 1 — Production foundation
 
@@ -21,7 +23,7 @@ No user media is scanned or modified in this milestone.
 
 ## Milestone 2 — Library sources
 
-This milestone adds the first complete user-facing Archivio workflow:
+This milestone adds the first complete user-facing Metaroq workflow:
 
 - persistent library-source records in SQLite
 - source types for mixed media, movies, television, music, audiobooks, documents, and photos
@@ -34,11 +36,11 @@ This milestone adds the first complete user-facing Archivio workflow:
 - application-service unit tests
 - SQLite repository integration tests
 
-Archivio stores only the selected folder metadata during this milestone. It does not scan, rename, move, delete, or otherwise modify files inside a library source.
+Metaroq stores only the selected folder metadata during this milestone. It does not scan, rename, move, delete, or otherwise modify files inside a library source.
 
 ## Audiobook batch dry run
 
-Archivio can turn saved audiobook organisation proposals into a whole-library dry-run queue. The queue expands each plan into file-level source and destination paths, detects missing sources and destination conflicts, and stores bulk or selected-plan approval and deferral decisions in SQLite. Review-required and conflicting plans cannot be approved until their safety checks pass. Approvals are preparation records only: this stage does not create folders, move, rename, combine, delete, or otherwise modify media files.
+Metaroq can turn saved audiobook organisation proposals into a whole-library dry-run queue. The queue expands each plan into file-level source and destination paths, detects missing sources and destination conflicts, and stores bulk or selected-plan approval and deferral decisions in SQLite. Review-required and conflicting plans cannot be approved until their safety checks pass. Approvals are preparation records only: this stage does not create folders, move, rename, combine, delete, or otherwise modify media files.
 
 ## Requirements
 
@@ -58,7 +60,7 @@ Archivio can turn saved audiobook organisation proposals into a whole-library dr
 .\run.ps1
 ```
 
-Application data is stored under `%LOCALAPPDATA%\Archivio`.
+Application data remains under `%LOCALAPPDATA%\Archivio` during the first Metaroq rebrand phase. This compatibility path intentionally preserves existing catalogues, saved analysis, organisation proposals, and dry-run decisions. A later technical migration can move the data to `%LOCALAPPDATA%\Metaroq` with an explicit backup and rollback path.
 
 ## Architecture
 
@@ -81,7 +83,7 @@ Application data is stored under `%LOCALAPPDATA%\Archivio`.
 - [ ] All 6 integration tests pass
 - [ ] WPF application opens
 - [ ] A library source can be added using the folder picker
-- [ ] A library source remains after restarting Archivio
+- [ ] A library source remains after restarting Metaroq
 - [ ] A library source can be edited and enabled or disabled
 - [ ] Duplicate normalized paths are rejected
 - [ ] Missing folders are rejected

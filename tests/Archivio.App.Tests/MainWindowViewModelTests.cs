@@ -9,6 +9,14 @@ namespace Archivio.App.Tests;
 public sealed class MainWindowViewModelTests
 {
     [Fact]
+    public void DefaultProductName_UsesMetaroqBrand()
+    {
+        var viewModel = CreateViewModel(new CountingBatchPlanningService());
+
+        Assert.Equal("Metaroq", viewModel.Title);
+    }
+
+    [Fact]
     public void ReviewFocusCommands_ExpandAndRestoreTheReviewWorkspace()
     {
         var viewModel = CreateViewModel(new CountingBatchPlanningService());
