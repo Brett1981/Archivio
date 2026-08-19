@@ -63,11 +63,17 @@ public sealed partial class MainWindowViewModel
     public int AudiobookAnalysisProgressMaximum => Math.Max(1, AudiobookAnalysisTotalCount);
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ApproveSelectedBatchCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DeferSelectedBatchCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResetSelectedBatchDecisionCommand))]
     private AudiobookCandidateGroup? _selectedAudiobookCandidate;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(AnalyseAudiobooksCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelAudiobookAnalysisCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApproveSelectedBatchCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DeferSelectedBatchCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResetSelectedBatchDecisionCommand))]
     private bool _isAudiobookAnalysisRunning;
 
     [ObservableProperty]
@@ -96,6 +102,9 @@ public sealed partial class MainWindowViewModel
 
     [ObservableProperty]
     private string _batchPlanningStatus = "Batch dry run has not been prepared";
+
+    [ObservableProperty]
+    private bool _isReviewFocusMode;
 
     [ObservableProperty]
     private string _audiobookSearchText = string.Empty;
@@ -161,6 +170,79 @@ public sealed partial class MainWindowViewModel
         }
 
         RefreshAudiobookCandidatesView();
+    }
+
+    [RelayCommand]
+    private void EnterReviewFocus() => IsReviewFocusMode = true;
+
+    [RelayCommand]
+    private void ExitReviewFocus() => IsReviewFocusMode = false;
+
+    private bool CanApproveSelectedBatch() =>
+        !IsAudiobookAnalysisRunning &&
+        SelectedAudiobookCandidate?.BatchPlan is
+        {
+            CanApprove: true,
+            Decision: not AudiobookBatchDecision.Approved
+        };
+
+    [RelayCommand(CanExecute = nameof(CanApproveSelectedBatch))]
+    private async Task ApproveSelectedBatchAsync()
+    {
+        var plan = SelectedAudiobookCandidate?.BatchPlan;
+        if (plan is null)
+        {
+            return;
+        }
+
+        await ApplyBatchDecisionAsync(
+            [plan.PlanKey],
+            AudiobookBatchDecision.Approved,
+            $"Approved {plan.CanonicalDisplay}");
+    }
+
+    private bool CanDeferSelectedBatch() =>
+        !IsAudiobookAnalysisRunning &&
+        SelectedAudiobookCandidate?.BatchPlan is
+        {
+            Decision: not AudiobookBatchDecision.Deferred
+        };
+
+    [RelayCommand(CanExecute = nameof(CanDeferSelectedBatch))]
+    private async Task DeferSelectedBatchAsync()
+    {
+        var plan = SelectedAudiobookCandidate?.BatchPlan;
+        if (plan is null)
+        {
+            return;
+        }
+
+        await ApplyBatchDecisionAsync(
+            [plan.PlanKey],
+            AudiobookBatchDecision.Deferred,
+            $"Deferred {plan.CanonicalDisplay}");
+    }
+
+    private bool CanResetSelectedBatchDecision() =>
+        !IsAudiobookAnalysisRunning &&
+        SelectedAudiobookCandidate?.BatchPlan is
+        {
+            Decision: not AudiobookBatchDecision.Pending
+        };
+
+    [RelayCommand(CanExecute = nameof(CanResetSelectedBatchDecision))]
+    private async Task ResetSelectedBatchDecisionAsync()
+    {
+        var plan = SelectedAudiobookCandidate?.BatchPlan;
+        if (plan is null)
+        {
+            return;
+        }
+
+        await ApplyBatchDecisionAsync(
+            [plan.PlanKey],
+            AudiobookBatchDecision.Pending,
+            $"Reset {plan.CanonicalDisplay}");
     }
 
     partial void OnAudiobookAnalysisTotalCountChanged(int value) =>

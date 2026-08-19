@@ -38,7 +38,7 @@ Archivio stores only the selected folder metadata during this milestone. It does
 
 ## Audiobook batch dry run
 
-Archivio can turn saved audiobook organisation proposals into a whole-library dry-run queue. The queue expands each plan into file-level source and destination paths, detects missing sources and destination conflicts, and stores bulk approval or deferral decisions in SQLite. Approvals are preparation records only: this stage does not create folders, move, rename, combine, delete, or otherwise modify media files.
+Archivio can turn saved audiobook organisation proposals into a whole-library dry-run queue. The queue expands each plan into file-level source and destination paths, detects missing sources and destination conflicts, and stores bulk or selected-plan approval and deferral decisions in SQLite. Review-required and conflicting plans cannot be approved until their safety checks pass. Approvals are preparation records only: this stage does not create folders, move, rename, combine, delete, or otherwise modify media files.
 
 ## Requirements
 

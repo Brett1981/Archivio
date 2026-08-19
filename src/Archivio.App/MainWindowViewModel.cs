@@ -115,6 +115,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     partial void OnSelectedSourceChanged(LibrarySource? value)
     {
+        IsReviewFocusMode = false;
         ResetAudiobookAnalysis();
 
         if (value is null)

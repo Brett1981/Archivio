@@ -2,7 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="{Binding Title}" Width="1540" Height="900" MinWidth="1200" MinHeight="720"
-        WindowStartupLocation="CenterScreen" Background="{StaticResource ArchivioBackground}">
+        WindowStartupLocation="CenterScreen" Background="{StaticResource ArchivioBackground}"
+        PreviewKeyDown="HandleWindowPreviewKeyDown">
     <Grid Margin="28">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -12,6 +13,15 @@
         </Grid.RowDefinitions>
 
         <StackPanel>
+            <StackPanel.Style>
+                <Style TargetType="StackPanel">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsReviewFocusMode}" Value="True">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </StackPanel.Style>
             <TextBlock Text="ARCHIVIO" Foreground="{StaticResource ArchivioAccent}" FontSize="14" FontWeight="Bold" />
             <TextBlock Text="Library catalogue" Foreground="White" FontSize="32" FontWeight="SemiBold" Margin="0,6,0,0" />
             <TextBlock Text="Scan safely, review audiobook candidates, and prepare an organised library."
@@ -28,6 +38,15 @@
             </Grid.ColumnDefinitions>
 
             <Border Background="{StaticResource ArchivioPanel}" CornerRadius="12" Padding="18">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsReviewFocusMode}" Value="True">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -100,6 +119,15 @@
             </Border>
 
             <Border Grid.Column="2" Background="{StaticResource ArchivioPanel}" CornerRadius="12" Padding="18">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsReviewFocusMode}" Value="True">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel>
                         <TextBlock Text="Source details" Foreground="White" FontSize="19" FontWeight="SemiBold" />
@@ -151,20 +179,75 @@
                 </ScrollViewer>
             </Border>
 
-            <Border Grid.Column="4" Background="{StaticResource ArchivioPanel}" CornerRadius="12" Padding="18">
-                <Grid>
-                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="10" /><RowDefinition Height="Auto" /><RowDefinition Height="8" /><RowDefinition Height="Auto" /><RowDefinition Height="10" /><RowDefinition Height="0.8*" /><RowDefinition Height="14" /><RowDefinition Height="1.2*" /></Grid.RowDefinitions>
-                    <DockPanel>
+            <Border Background="{StaticResource ArchivioPanel}" CornerRadius="12" Padding="18"
+                    PreviewMouseLeftButtonDown="HandleReviewPanelPreviewMouseLeftButtonDown">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Grid.Column" Value="4" />
+                        <Setter Property="Grid.ColumnSpan" Value="1" />
+                        <Setter Property="Panel.ZIndex" Value="0" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsReviewFocusMode}" Value="True">
+                                <Setter Property="Grid.Column" Value="0" />
+                                <Setter Property="Grid.ColumnSpan" Value="5" />
+                                <Setter Property="Panel.ZIndex" Value="10" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <Grid x:Name="ReviewWorkspaceGrid">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition x:Name="ReviewCandidateColumn" Width="*" />
+                        <ColumnDefinition x:Name="ReviewColumnGap" Width="0" />
+                        <ColumnDefinition x:Name="ReviewDetailsColumn" Width="0" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="10" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="8" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="10" />
+                        <RowDefinition x:Name="ReviewCandidateRow" Height="0.8*" />
+                        <RowDefinition x:Name="ReviewRowGap" Height="14" />
+                        <RowDefinition x:Name="ReviewDetailsRow" Height="1.2*" />
+                    </Grid.RowDefinitions>
+                    <DockPanel Grid.ColumnSpan="3">
                         <StackPanel>
                             <TextBlock Text="Audiobook review" Foreground="White" FontSize="19" FontWeight="SemiBold" />
                             <TextBlock Text="Read-only local metadata analysis" Foreground="#64748B" FontSize="11" Margin="0,3,0,0" />
                         </StackPanel>
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Content="Focus review" Command="{Binding EnterReviewFocusCommand}" Padding="13,7" Margin="0,0,8,0"
+                                    ToolTip="Expand the review panel across the workspace">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsReviewFocusMode}" Value="True">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <Button Content="Back to catalogue" Command="{Binding ExitReviewFocusCommand}" Padding="13,7" Margin="0,0,8,0"
+                                    ToolTip="Restore the catalogue and source panels (Esc)">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsReviewFocusMode}" Value="True">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
                             <Button Content="Cancel" Command="{Binding CancelAudiobookAnalysisCommand}" Padding="13,7" Margin="0,0,8,0" />
                             <Button Content="Analyse" Command="{Binding AnalyseAudiobooksCommand}" Padding="13,7" />
                         </StackPanel>
                     </DockPanel>
-                    <WrapPanel Grid.Row="2">
+                    <WrapPanel Grid.Row="2" Grid.ColumnSpan="3">
                         <TextBlock Foreground="#CBD5E1" Margin="0,0,14,0"><Run Text="{Binding VisibleAudiobookCandidateCount, Mode=OneWay}" /><Run Text=" / " /><Run Text="{Binding AudiobookCandidateCount, Mode=OneWay}" /><Run Text=" candidates" /></TextBlock>
                         <TextBlock Foreground="#CBD5E1" Margin="0,0,14,0"><Run Text="{Binding MultipartAudiobookCount, Mode=OneWay}" /><Run Text=" multipart" /></TextBlock>
                         <TextBlock Foreground="#CBD5E1" Margin="0,0,14,0"><Run Text="{Binding SingleFileAudiobookCount, Mode=OneWay}" /><Run Text=" single" /></TextBlock>
@@ -176,7 +259,7 @@
                         <TextBlock Foreground="#C4B5FD" Margin="0,0,14,0"><Run Text="{Binding BatchApprovedCount, Mode=OneWay}" /><Run Text=" approved" /></TextBlock>
                         <TextBlock Foreground="#F59E0B"><Run Text="{Binding BatchBlockedCount, Mode=OneWay}" /><Run Text=" blocked" /></TextBlock>
                     </WrapPanel>
-                    <StackPanel Grid.Row="4">
+                    <StackPanel Grid.Row="4" Grid.ColumnSpan="3">
                         <DockPanel>
                             <TextBlock Text="{Binding AudiobookAnalysisStatus}" Foreground="{StaticResource ArchivioAccent}" FontSize="11" TextTrimming="CharacterEllipsis" />
                             <TextBlock DockPanel.Dock="Right" Foreground="#94A3B8" FontSize="10">
@@ -254,7 +337,7 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-                    <Border Grid.Row="8" Background="#0F172A" CornerRadius="8" Padding="13">
+                    <Border x:Name="CandidateDetailsPanel" Grid.Row="8" Background="#0F172A" CornerRadius="8" Padding="13">
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <StackPanel DataContext="{Binding SelectedAudiobookCandidate}">
                                 <TextBlock Text="Candidate details" Foreground="White" FontWeight="SemiBold" />
@@ -291,6 +374,22 @@
                                 <TextBlock Text="Batch dry run" Foreground="White" FontWeight="SemiBold" Margin="0,13,0,5" />
                                 <TextBlock Text="{Binding BatchPlan.ValidationLabel}" Foreground="#C4B5FD" FontWeight="SemiBold" TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding BatchPlan.DecisionLabel}" Foreground="#94A3B8" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                <UniformGrid Columns="3" Margin="0,8,0,0">
+                                    <Button Content="Approve selected"
+                                            Command="{Binding DataContext.ApproveSelectedBatchCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            Padding="8,5" Margin="0,0,6,0"
+                                            ToolTip="Approve this plan when all safety checks pass" />
+                                    <Button Content="Defer selected"
+                                            Command="{Binding DataContext.DeferSelectedBatchCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            Padding="8,5" Margin="0,0,6,0"
+                                            ToolTip="Defer this plan for later review" />
+                                    <Button Content="Reset selected"
+                                            Command="{Binding DataContext.ResetSelectedBatchDecisionCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            Padding="8,5"
+                                            ToolTip="Return this plan to decision pending" />
+                                </UniformGrid>
+                                <TextBlock Text="Decision only — no folders or media files will be changed."
+                                           Foreground="#94A3B8" FontSize="9" Margin="0,4,0,0" TextWrapping="Wrap" />
                                 <ItemsControl ItemsSource="{Binding BatchPlan.Warnings}" Margin="0,5,0,0"><ItemsControl.ItemTemplate><DataTemplate>
                                     <TextBlock Text="{Binding StringFormat=⚠ {0}}" Foreground="#F59E0B" TextWrapping="Wrap" Margin="0,0,0,3" />
                                 </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
@@ -354,6 +453,15 @@
         </Grid>
 
         <DockPanel Grid.Row="3" Margin="0,18,0,0">
+            <DockPanel.Style>
+                <Style TargetType="DockPanel">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsReviewFocusMode}" Value="True">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </DockPanel.Style>
             <TextBlock Text="{Binding Status}" Foreground="{StaticResource ArchivioAccent}" FontWeight="SemiBold" />
             <TextBlock DockPanel.Dock="Right" Text="{Binding Version, StringFormat=Version {0}}" Foreground="#6B7280" />
         </DockPanel>

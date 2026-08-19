@@ -9,6 +9,20 @@ namespace Archivio.App.Tests;
 public sealed class MainWindowViewModelTests
 {
     [Fact]
+    public void ReviewFocusCommands_ExpandAndRestoreTheReviewWorkspace()
+    {
+        var viewModel = CreateViewModel(new CountingBatchPlanningService());
+
+        viewModel.EnterReviewFocusCommand.Execute(null);
+
+        Assert.True(viewModel.IsReviewFocusMode);
+
+        viewModel.ExitReviewFocusCommand.Execute(null);
+
+        Assert.False(viewModel.IsReviewFocusMode);
+    }
+
+    [Fact]
     public async Task LoadingSavedAnalysis_PreparesBatchPreviewOnlyOnce()
     {
         var source = new LibrarySource(
@@ -16,16 +30,7 @@ public sealed class MainWindowViewModelTests
             Path.Combine(Path.GetTempPath(), "Archivio.App.Tests"),
             LibrarySourceType.Audiobooks);
         var batchPlanningService = new CountingBatchPlanningService();
-        var viewModel = new MainWindowViewModel(
-            Options.Create(new ArchivioOptions()),
-            new StubLibrarySourceService(),
-            new StubFolderPickerService(),
-            new StubBackgroundScanService(),
-            new EmptyMediaCatalogueService(),
-            new SavedAnalysisService(),
-            new PassthroughOnlineMetadataLookupService(),
-            new PassthroughOrganisationService(),
-            batchPlanningService);
+        var viewModel = CreateViewModel(batchPlanningService);
 
         viewModel.SelectedSource = source;
 
@@ -36,6 +41,84 @@ public sealed class MainWindowViewModelTests
         Assert.Equal(1, batchPlanningService.PrepareCount);
         Assert.StartsWith("Dry run prepared:", viewModel.BatchPlanningStatus, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task SelectedPlanActions_SaveApproveDeferAndResetDecisions()
+    {
+        var source = new LibrarySource(
+            "Audiobooks",
+            Path.Combine(Path.GetTempPath(), "Archivio.App.Tests"),
+            LibrarySourceType.Audiobooks);
+        var batchPlanningService = new CountingBatchPlanningService();
+        var viewModel = CreateViewModel(batchPlanningService);
+        viewModel.SelectedSource = source;
+        await WaitUntilAsync(
+            () => viewModel.AudiobookAnalysisStatus == "Saved analysis loaded",
+            TimeSpan.FromSeconds(2));
+        var candidate = CreateCandidateWithBatchPlan();
+        viewModel.AudiobookCandidates.Add(candidate);
+        viewModel.SelectedAudiobookCandidate = candidate;
+
+        await viewModel.ApproveSelectedBatchCommand.ExecuteAsync(null);
+        await viewModel.DeferSelectedBatchCommand.ExecuteAsync(null);
+        await viewModel.ResetSelectedBatchDecisionCommand.ExecuteAsync(null);
+
+        Assert.Equal(
+            [AudiobookBatchDecision.Approved, AudiobookBatchDecision.Deferred, AudiobookBatchDecision.Pending],
+            batchPlanningService.Decisions);
+        Assert.All(batchPlanningService.PlanKeys, keys => Assert.Equal("plan-1", Assert.Single(keys)));
+        Assert.Equal(
+            AudiobookBatchDecision.Pending,
+            viewModel.SelectedAudiobookCandidate?.BatchPlan?.Decision);
+    }
+
+    [Fact]
+    public void ReviewRequiredSelectedPlan_CannotBeApprovedButCanBeDeferred()
+    {
+        var viewModel = CreateViewModel(new CountingBatchPlanningService());
+        viewModel.SelectedAudiobookCandidate = CreateCandidateWithBatchPlan(
+            AudiobookBatchValidationStatus.ReviewRequired);
+
+        Assert.False(viewModel.ApproveSelectedBatchCommand.CanExecute(null));
+        Assert.True(viewModel.DeferSelectedBatchCommand.CanExecute(null));
+        Assert.False(viewModel.ResetSelectedBatchDecisionCommand.CanExecute(null));
+    }
+
+    private static MainWindowViewModel CreateViewModel(IAudiobookBatchPlanningService batchPlanningService) =>
+        new(
+            Options.Create(new ArchivioOptions()),
+            new StubLibrarySourceService(),
+            new StubFolderPickerService(),
+            new StubBackgroundScanService(),
+            new EmptyMediaCatalogueService(),
+            new SavedAnalysisService(),
+            new PassthroughOnlineMetadataLookupService(),
+            new PassthroughOrganisationService(),
+            batchPlanningService);
+
+    private static AudiobookCandidateGroup CreateCandidateWithBatchPlan(
+        AudiobookBatchValidationStatus validationStatus = AudiobookBatchValidationStatus.Ready) =>
+        new(
+            "Author - Book",
+            "Author",
+            "Book",
+            MetadataValueSource.EmbeddedTag,
+            MetadataValueSource.EmbeddedTag,
+            true,
+            [],
+            1m,
+            [])
+        {
+            BatchPlan = new AudiobookBatchPlan(
+                "plan-1",
+                "signature",
+                "Author - Book",
+                validationStatus,
+                AudiobookBatchDecision.Pending,
+                [],
+                [],
+                DateTime.UtcNow)
+        };
 
     private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
     {
@@ -49,6 +132,8 @@ public sealed class MainWindowViewModelTests
     private sealed class CountingBatchPlanningService : IAudiobookBatchPlanningService
     {
         public int PrepareCount { get; private set; }
+        public List<AudiobookBatchDecision> Decisions { get; } = [];
+        public List<IReadOnlyCollection<string>> PlanKeys { get; } = [];
 
         public Task<IReadOnlyList<AudiobookCandidateGroup>> PrepareBatchAsync(
             Guid librarySourceId,
@@ -71,7 +156,17 @@ public sealed class MainWindowViewModelTests
             IReadOnlyList<AudiobookCandidateGroup> candidates,
             IReadOnlyCollection<string> planKeys,
             AudiobookBatchDecision decision,
-            CancellationToken cancellationToken = default) => Task.FromResult(candidates);
+            CancellationToken cancellationToken = default)
+        {
+            Decisions.Add(decision);
+            PlanKeys.Add(planKeys);
+            var updated = candidates
+                .Select(candidate => candidate.BatchPlan is not null && planKeys.Contains(candidate.BatchPlan.PlanKey)
+                    ? candidate with { BatchPlan = candidate.BatchPlan with { Decision = decision } }
+                    : candidate)
+                .ToList();
+            return Task.FromResult<IReadOnlyList<AudiobookCandidateGroup>>(updated);
+        }
     }
 
     private sealed class SavedAnalysisService : IAudiobookAnalysisService
