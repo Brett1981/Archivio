@@ -23,6 +23,7 @@ public static class DependencyInjection
         services.AddSingleton<IOnlineMetadataLookupService, OnlineMetadataLookupService>();
         services.AddSingleton<IAudiobookOrganisationService, AudiobookOrganisationService>();
         services.AddSingleton<IAudiobookBatchPlanningService, AudiobookBatchPlanningService>();
+        services.AddSingleton<IAudiobookBatchExecutionService, AudiobookBatchExecutionService>();
 
         return services;
     }

@@ -24,6 +24,7 @@ public static class DependencyInjection
         services.AddSingleton<IAudiobookAnalysisStore, AudiobookAnalysisStore>();
         services.AddSingleton<IAudiobookOrganisationStore, AudiobookOrganisationStore>();
         services.AddSingleton<IAudiobookBatchDecisionStore, AudiobookBatchDecisionStore>();
+        services.AddSingleton<IAudiobookExecutionJournalStore, AudiobookExecutionJournalStore>();
         services.AddSingleton<IDatabaseInitializer, DatabaseInitializer>();
         return services;
     }

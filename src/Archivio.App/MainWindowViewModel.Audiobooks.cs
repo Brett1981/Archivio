@@ -14,7 +14,10 @@ public sealed partial class MainWindowViewModel
     private readonly IOnlineMetadataLookupService _onlineMetadataLookupService;
     private readonly IAudiobookOrganisationService _audiobookOrganisationService;
     private readonly IAudiobookBatchPlanningService _audiobookBatchPlanningService;
+    private readonly IAudiobookBatchExecutionService _audiobookBatchExecutionService;
+    private readonly IAudiobookExecutionConfirmationService _audiobookExecutionConfirmationService;
     private CancellationTokenSource? _audiobookAnalysisCancellation;
+    private CancellationTokenSource? _audiobookExecutionCancellation;
     private ICollectionView? _audiobookCandidatesView;
 
     [ObservableProperty]
@@ -60,7 +63,19 @@ public sealed partial class MainWindowViewModel
         candidate.BatchPlan?.Decision == AudiobookBatchDecision.Approved);
     public int BatchBlockedCount => AudiobookCandidates.Count(candidate =>
         candidate.IsPrimaryOrganisationPlan && candidate.BatchPlan?.IsBlocked == true);
+    public int BatchExecutableOperationCount => AudiobookCandidates
+        .Select(candidate => candidate.BatchPlan)
+        .Where(plan => plan is
+        {
+            ValidationStatus: AudiobookBatchValidationStatus.Ready,
+            Decision: AudiobookBatchDecision.Approved
+        })
+        .Select(plan => plan!)
+        .GroupBy(plan => plan.PlanKey, StringComparer.Ordinal)
+        .Select(group => group.First())
+        .Sum(plan => plan.Operations.Count(operation => operation.Kind != AudiobookFileOperationKind.NoChange));
     public int AudiobookAnalysisProgressMaximum => Math.Max(1, AudiobookAnalysisTotalCount);
+    public int AudiobookExecutionProgressMaximum => Math.Max(1, AudiobookExecutionTotalCount);
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ApproveSelectedBatchCommand))]
@@ -74,6 +89,7 @@ public sealed partial class MainWindowViewModel
     [NotifyCanExecuteChangedFor(nameof(ApproveSelectedBatchCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeferSelectedBatchCommand))]
     [NotifyCanExecuteChangedFor(nameof(ResetSelectedBatchDecisionCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExecuteApprovedBatchCommand))]
     private bool _isAudiobookAnalysisRunning;
 
     [ObservableProperty]
@@ -102,6 +118,33 @@ public sealed partial class MainWindowViewModel
 
     [ObservableProperty]
     private string _batchPlanningStatus = "Batch dry run has not been prepared";
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ExecuteApprovedBatchCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RecoverInterruptedExecutionCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CancelAudiobookExecutionCommand))]
+    [NotifyCanExecuteChangedFor(nameof(AnalyseAudiobooksCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StartScanCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SaveCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DeleteCommand))]
+    private bool _isAudiobookExecutionRunning;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RecoverInterruptedExecutionCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExecuteApprovedBatchCommand))]
+    private bool _hasInterruptedAudiobookExecution;
+
+    [ObservableProperty]
+    private string _audiobookExecutionStatus = "No batch execution has run";
+
+    [ObservableProperty]
+    private string _audiobookExecutionCurrentPath = string.Empty;
+
+    [ObservableProperty]
+    private int _audiobookExecutionProcessedCount;
+
+    [ObservableProperty]
+    private int _audiobookExecutionTotalCount;
 
     [ObservableProperty]
     private bool _isReviewFocusMode;
@@ -245,10 +288,170 @@ public sealed partial class MainWindowViewModel
             $"Reset {plan.CanonicalDisplay}");
     }
 
+    private bool CanExecuteApprovedBatch() =>
+        !IsBusy &&
+        !IsScanRunning &&
+        !IsAudiobookAnalysisRunning &&
+        !IsAudiobookExecutionRunning &&
+        !HasInterruptedAudiobookExecution &&
+        SelectedSource is { IsEnabled: true } &&
+        BatchExecutableOperationCount > 0;
+
+    [RelayCommand(CanExecute = nameof(CanExecuteApprovedBatch))]
+    private async Task ExecuteApprovedBatchAsync()
+    {
+        if (SelectedSource is null)
+        {
+            return;
+        }
+
+        var plans = AudiobookCandidates
+            .Select(candidate => candidate.BatchPlan)
+            .Where(plan => plan is
+            {
+                ValidationStatus: AudiobookBatchValidationStatus.Ready,
+                Decision: AudiobookBatchDecision.Approved
+            })
+            .Select(plan => plan!)
+            .GroupBy(plan => plan.PlanKey, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .ToList();
+        var operationCount = plans.Sum(plan =>
+            plan.Operations.Count(operation => operation.Kind != AudiobookFileOperationKind.NoChange));
+        if (operationCount == 0 ||
+            !_audiobookExecutionConfirmationService.ConfirmExecution(plans.Count, operationCount))
+        {
+            return;
+        }
+
+        var source = SelectedSource;
+        _audiobookExecutionCancellation?.Dispose();
+        _audiobookExecutionCancellation = new CancellationTokenSource();
+        IsAudiobookExecutionRunning = true;
+        AudiobookExecutionProcessedCount = 0;
+        AudiobookExecutionTotalCount = operationCount;
+        AudiobookExecutionCurrentPath = string.Empty;
+        AudiobookExecutionStatus = $"Revalidating {operationCount:N0} approved file operation{(operationCount == 1 ? string.Empty : "s")}...";
+        try
+        {
+            var progress = new Progress<AudiobookExecutionProgress>(UpdateAudiobookExecutionProgress);
+            var result = await _audiobookBatchExecutionService.ExecuteApprovedAsync(
+                source.Id,
+                source.Path,
+                AudiobookCandidates.ToList(),
+                progress,
+                _audiobookExecutionCancellation.Token);
+            AudiobookExecutionStatus = result.Message;
+            HasInterruptedAudiobookExecution = result.NeedsRecovery;
+            if (!result.Succeeded)
+            {
+                Status = result.Message;
+                return;
+            }
+
+            IsAudiobookExecutionRunning = false;
+            ResetAudiobookAnalysis();
+            AudiobookExecutionStatus = $"{result.Message} Rescanning the catalogue...";
+            IsScanRunning = await _backgroundScanService.QueueScanAsync(source.Id);
+            Status = IsScanRunning
+                ? "Approved file operations completed; refreshing the catalogue"
+                : "Approved file operations completed; start a scan to refresh the catalogue";
+        }
+        catch (Exception exception)
+        {
+            AudiobookExecutionStatus = $"Execution did not start: {exception.Message}";
+            Status = AudiobookExecutionStatus;
+        }
+        finally
+        {
+            IsAudiobookExecutionRunning = false;
+            _audiobookExecutionCancellation?.Dispose();
+            _audiobookExecutionCancellation = null;
+        }
+    }
+
+    private bool CanRecoverInterruptedExecution() =>
+        HasInterruptedAudiobookExecution &&
+        !IsBusy &&
+        !IsScanRunning &&
+        !IsAudiobookAnalysisRunning &&
+        !IsAudiobookExecutionRunning &&
+        SelectedSource is not null;
+
+    [RelayCommand(CanExecute = nameof(CanRecoverInterruptedExecution))]
+    private async Task RecoverInterruptedExecutionAsync()
+    {
+        if (SelectedSource is null)
+        {
+            return;
+        }
+
+        var latest = await _audiobookBatchExecutionService.LoadLatestAsync(SelectedSource.Id);
+        if (latest is null ||
+            !_audiobookExecutionConfirmationService.ConfirmRecovery(latest.PlannedOperationCount))
+        {
+            return;
+        }
+
+        _audiobookExecutionCancellation?.Dispose();
+        _audiobookExecutionCancellation = new CancellationTokenSource();
+        IsAudiobookExecutionRunning = true;
+        AudiobookExecutionProcessedCount = 0;
+        AudiobookExecutionTotalCount = latest.PlannedOperationCount;
+        AudiobookExecutionStatus = "Recovering the interrupted execution journal...";
+        try
+        {
+            var progress = new Progress<AudiobookExecutionProgress>(UpdateAudiobookExecutionProgress);
+            var result = await _audiobookBatchExecutionService.RecoverInterruptedAsync(
+                SelectedSource.Id,
+                SelectedSource.Path,
+                progress,
+                _audiobookExecutionCancellation.Token);
+            AudiobookExecutionStatus = result.Message;
+            HasInterruptedAudiobookExecution = result.NeedsRecovery;
+            Status = result.Message;
+        }
+        catch (OperationCanceledException)
+        {
+            AudiobookExecutionStatus = "Recovery cancelled; the execution journal remains available.";
+        }
+        catch (Exception exception)
+        {
+            AudiobookExecutionStatus = $"Recovery could not complete: {exception.Message}";
+        }
+        finally
+        {
+            IsAudiobookExecutionRunning = false;
+            _audiobookExecutionCancellation?.Dispose();
+            _audiobookExecutionCancellation = null;
+        }
+    }
+
+    private bool CanCancelAudiobookExecution() => IsAudiobookExecutionRunning;
+
+    [RelayCommand(CanExecute = nameof(CanCancelAudiobookExecution))]
+    private void CancelAudiobookExecution()
+    {
+        AudiobookExecutionStatus = "Cancelling execution and rolling back completed moves...";
+        _audiobookExecutionCancellation?.Cancel();
+    }
+
+    private void UpdateAudiobookExecutionProgress(AudiobookExecutionProgress progress)
+    {
+        AudiobookExecutionProcessedCount = progress.ProcessedCount;
+        AudiobookExecutionTotalCount = progress.TotalCount;
+        AudiobookExecutionCurrentPath = progress.CurrentPath;
+        AudiobookExecutionStatus = progress.Status;
+    }
+
     partial void OnAudiobookAnalysisTotalCountChanged(int value) =>
         OnPropertyChanged(nameof(AudiobookAnalysisProgressMaximum));
 
-    private bool CanAnalyseAudiobooks() => !IsBusy && !IsScanRunning && !IsAudiobookAnalysisRunning;
+    partial void OnAudiobookExecutionTotalCountChanged(int value) =>
+        OnPropertyChanged(nameof(AudiobookExecutionProgressMaximum));
+
+    private bool CanAnalyseAudiobooks() =>
+        !IsBusy && !IsScanRunning && !IsAudiobookAnalysisRunning && !IsAudiobookExecutionRunning;
 
     [RelayCommand(CanExecute = nameof(CanAnalyseAudiobooks))]
     private async Task AnalyseAudiobooksAsync()
@@ -598,11 +801,55 @@ public sealed partial class MainWindowViewModel
                 }
             });
         }
+
+        await LoadLatestExecutionStatusAsync(librarySourceId);
+    }
+
+    private async Task LoadLatestExecutionStatusAsync(Guid librarySourceId)
+    {
+        try
+        {
+            var latest = await _audiobookBatchExecutionService.LoadLatestAsync(librarySourceId);
+            RunOnUiThread(() =>
+            {
+                if (SelectedSource?.Id != librarySourceId)
+                {
+                    return;
+                }
+
+                HasInterruptedAudiobookExecution = latest?.Status is
+                    AudiobookExecutionRunStatus.Prepared or
+                    AudiobookExecutionRunStatus.Running or
+                    AudiobookExecutionRunStatus.FailedNeedsRecovery;
+                AudiobookExecutionStatus = latest is null
+                    ? "No batch execution has run"
+                    : latest.Status switch
+                    {
+                        AudiobookExecutionRunStatus.Completed =>
+                            $"Last execution completed {latest.CompletedAtUtc?.ToLocalTime():g}: {latest.CompletedOperationCount:N0} files moved",
+                        AudiobookExecutionRunStatus.FailedRolledBack =>
+                            $"Last execution stopped safely: {latest.RolledBackOperationCount:N0} moves rolled back",
+                        AudiobookExecutionRunStatus.CancelledRolledBack =>
+                            $"Last execution was cancelled: {latest.RolledBackOperationCount:N0} moves rolled back",
+                        AudiobookExecutionRunStatus.FailedNeedsRecovery =>
+                            "Previous execution needs recovery before another run can start",
+                        _ => "Previous execution was interrupted; recovery is available"
+                    };
+                AudiobookExecutionProcessedCount = latest?.CompletedOperationCount ?? 0;
+                AudiobookExecutionTotalCount = latest?.PlannedOperationCount ?? 0;
+            });
+        }
+        catch (Exception exception)
+        {
+            RunOnUiThread(() => AudiobookExecutionStatus =
+                $"Execution history could not be loaded: {exception.Message}");
+        }
     }
 
     private void ResetAudiobookAnalysis()
     {
         _audiobookAnalysisCancellation?.Cancel();
+        _audiobookExecutionCancellation?.Cancel();
         AudiobookCandidates = [];
         SelectedAudiobookCandidate = null;
         AudiobookAnalysisProcessedCount = 0;
@@ -694,5 +941,7 @@ public sealed partial class MainWindowViewModel
         OnPropertyChanged(nameof(BatchReadyCount));
         OnPropertyChanged(nameof(BatchApprovedCount));
         OnPropertyChanged(nameof(BatchBlockedCount));
+        OnPropertyChanged(nameof(BatchExecutableOperationCount));
+        ExecuteApprovedBatchCommand.NotifyCanExecuteChanged();
     }
 }

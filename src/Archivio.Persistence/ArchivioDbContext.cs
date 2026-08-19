@@ -16,6 +16,10 @@ public sealed class ArchivioDbContext(DbContextOptions<ArchivioDbContext> option
         Set<AudiobookOrganisationProposalEntity>();
     internal DbSet<AudiobookBatchDecisionEntity> AudiobookBatchDecisions =>
         Set<AudiobookBatchDecisionEntity>();
+    internal DbSet<AudiobookExecutionRunEntity> AudiobookExecutionRuns =>
+        Set<AudiobookExecutionRunEntity>();
+    internal DbSet<AudiobookExecutionOperationEntity> AudiobookExecutionOperations =>
+        Set<AudiobookExecutionOperationEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -155,6 +159,45 @@ public sealed class ArchivioDbContext(DbContextOptions<ArchivioDbContext> option
             entity.HasOne<LibrarySource>()
                 .WithMany()
                 .HasForeignKey(x => x.LibrarySourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AudiobookExecutionRunEntity>(entity =>
+        {
+            entity.ToTable("AudiobookExecutionRuns");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Status).IsRequired();
+            entity.Property(x => x.PlannedOperationCount).IsRequired();
+            entity.Property(x => x.CompletedOperationCount).IsRequired();
+            entity.Property(x => x.RolledBackOperationCount).IsRequired();
+            entity.Property(x => x.StartedAtUtc).IsRequired();
+            entity.Property(x => x.UpdatedAtUtc).IsRequired();
+            entity.Property(x => x.ErrorMessage).HasMaxLength(2048);
+            entity.HasIndex(x => new { x.LibrarySourceId, x.StartedAtUtc });
+            entity.HasOne<LibrarySource>()
+                .WithMany()
+                .HasForeignKey(x => x.LibrarySourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AudiobookExecutionOperationEntity>(entity =>
+        {
+            entity.ToTable("AudiobookExecutionOperations");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.SortOrder).IsRequired();
+            entity.Property(x => x.PlanKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.InputSignature).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.SourceRelativePath).HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.DestinationRelativePath).HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.Kind).IsRequired();
+            entity.Property(x => x.Status).IsRequired();
+            entity.Property(x => x.SourceSizeBytes).IsRequired();
+            entity.Property(x => x.SourceModifiedAtUtc).IsRequired();
+            entity.Property(x => x.ErrorMessage).HasMaxLength(2048);
+            entity.HasIndex(x => new { x.RunId, x.SortOrder }).IsUnique();
+            entity.HasOne(x => x.Run)
+                .WithMany(x => x.Operations)
+                .HasForeignKey(x => x.RunId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }

@@ -277,6 +277,7 @@
                         <TextBlock Foreground="{StaticResource MetaroqAqua}" Margin="0,0,14,0"><Run Text="{Binding AutomaticReadyPlanCount, Mode=OneWay}" /><Run Text=" automation-ready" /></TextBlock>
                         <TextBlock Foreground="{StaticResource MetaroqAqua}" Margin="0,0,14,0"><Run Text="{Binding BatchReadyCount, Mode=OneWay}" /><Run Text=" batch-safe" /></TextBlock>
                         <TextBlock Foreground="{StaticResource MetaroqSand}" Margin="0,0,14,0"><Run Text="{Binding BatchApprovedCount, Mode=OneWay}" /><Run Text=" approved" /></TextBlock>
+                        <TextBlock Foreground="{StaticResource MetaroqAqua}" Margin="0,0,14,0"><Run Text="{Binding BatchExecutableOperationCount, Mode=OneWay}" /><Run Text=" executable files" /></TextBlock>
                         <TextBlock Foreground="#F59E0B"><Run Text="{Binding BatchBlockedCount, Mode=OneWay}" /><Run Text=" blocked" /></TextBlock>
                     </WrapPanel>
                     <StackPanel Grid.Row="4" Grid.ColumnSpan="3">
@@ -292,6 +293,14 @@
                         <TextBlock Text="{Binding OnlineMetadataStatus}" Foreground="{StaticResource MetaroqAqua}" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
                         <TextBlock Text="{Binding OrganisationStatus}" Foreground="{StaticResource MetaroqAccent}" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
                         <TextBlock Text="{Binding BatchPlanningStatus}" Foreground="{StaticResource MetaroqSand}" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
+                        <DockPanel Margin="0,5,0,0">
+                            <TextBlock Text="{Binding AudiobookExecutionStatus}" Foreground="{StaticResource MetaroqAqua}" FontSize="10" TextTrimming="CharacterEllipsis" />
+                            <TextBlock DockPanel.Dock="Right" Foreground="#94A3B8" FontSize="10">
+                                <Run Text="{Binding AudiobookExecutionProcessedCount, Mode=OneWay}" /><Run Text=" / " /><Run Text="{Binding AudiobookExecutionTotalCount, Mode=OneWay}" />
+                            </TextBlock>
+                        </DockPanel>
+                        <ProgressBar Minimum="0" Maximum="{Binding AudiobookExecutionProgressMaximum}" Value="{Binding AudiobookExecutionProcessedCount}" Height="4" Margin="0,4,0,0" />
+                        <TextBlock Text="{Binding AudiobookExecutionCurrentPath}" Foreground="#64748B" FontSize="9" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
                         <TextBox Text="{Binding AudiobookSearchText, UpdateSourceTrigger=PropertyChanged}" Padding="8,5" Margin="0,7,0,0" ToolTip="Search audiobook title, author, or file path" />
                         <UniformGrid Columns="3" Margin="0,6,0,0">
                             <UniformGrid.Resources>
@@ -315,14 +324,22 @@
                                       ToolTip="Also require a saved online suggestion" />
                         </UniformGrid>
                         <UniformGrid Columns="3" Margin="0,2,0,0">
-                            <Button Content="Approve all safe" Command="{Binding ApproveSafeBatchCommand}" Style="{StaticResource MetaroqPrimaryButtonStyle}" Padding="8,5" Margin="0,0,8,0"
+                            <Button Content="Approve all safe" Command="{Binding ApproveSafeBatchCommand}" Padding="8,5" Margin="0,0,8,0"
                                     ToolTip="Save approval for every conflict-free plan; this does not change media files" />
                             <Button Content="Defer blocked" Command="{Binding DeferBlockedBatchCommand}" Padding="8,5" Margin="0,0,8,0"
                                     ToolTip="Mark review-required and conflicting plans as deferred" />
                             <Button Content="Reset decisions" Command="{Binding ResetBatchDecisionsCommand}" Padding="8,5"
                                     ToolTip="Return all saved batch decisions to pending" />
                         </UniformGrid>
-                        <TextBlock Text="Dry run only — approvals are stored in Metaroq; no media files are moved or renamed."
+                        <UniformGrid Columns="3" Margin="0,4,0,0">
+                            <Button Content="Execute approved" Command="{Binding ExecuteApprovedBatchCommand}" Style="{StaticResource MetaroqPrimaryButtonStyle}" Padding="8,5" Margin="0,0,8,0"
+                                    ToolTip="Revalidate and execute approved move/rename operations with a persistent rollback journal" />
+                            <Button Content="Recover interrupted" Command="{Binding RecoverInterruptedExecutionCommand}" Padding="8,5" Margin="0,0,8,0"
+                                    ToolTip="Safely restore files recorded by an interrupted execution" />
+                            <Button Content="Cancel execution" Command="{Binding CancelAudiobookExecutionCommand}" Padding="8,5"
+                                    ToolTip="Stop execution and roll back completed moves" />
+                        </UniformGrid>
+                        <TextBlock Text="Execution is always confirmed, revalidated, journalled, and non-overwriting. Combining and deletion remain disabled."
                                    Foreground="#94A3B8" FontSize="9" Margin="0,5,0,0" TextWrapping="Wrap" />
                     </StackPanel>
                     <ListBox Grid.Row="6" ItemsSource="{Binding AudiobookCandidatesView}" SelectedItem="{Binding SelectedAudiobookCandidate}"

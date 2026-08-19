@@ -40,7 +40,15 @@ Metaroq stores only the selected folder metadata during this milestone. It does 
 
 ## Audiobook batch dry run
 
-Metaroq can turn saved audiobook organisation proposals into a whole-library dry-run queue. The queue expands each plan into file-level source and destination paths, detects missing sources and destination conflicts, and stores bulk or selected-plan approval and deferral decisions in SQLite. Review-required and conflicting plans cannot be approved until their safety checks pass. Approvals are preparation records only: this stage does not create folders, move, rename, combine, delete, or otherwise modify media files.
+Metaroq can turn saved audiobook organisation proposals into a whole-library dry-run queue. The queue expands each plan into file-level source and destination paths, detects missing sources and destination conflicts, and stores bulk or selected-plan approval and deferral decisions in SQLite. Review-required and conflicting plans cannot be approved until their safety checks pass.
+
+## Guarded audiobook execution
+
+Approved, conflict-free move and rename plans can now be executed after an explicit confirmation. Immediately before execution, Metaroq revalidates the library boundary, source existence, source size and modified time, unique targets, and destination availability. Existing destination files are never overwritten.
+
+Every run and file operation is written to a SQLite execution journal before media changes begin. Progress is checkpointed after each move. If an operation fails or the user cancels, completed moves are rolled back in reverse order where that can be done without overwriting anything. Interrupted runs are detected when the source is reopened and must be recovered before another execution can start.
+
+This milestone supports move and rename operations only. Audio combining, deletion, metadata rewriting, and unattended execution remain disabled.
 
 ## Requirements
 

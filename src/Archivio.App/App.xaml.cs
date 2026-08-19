@@ -51,6 +51,7 @@ public partial class App : System.Windows.Application
                     services.AddWorkers();
                     services.AddSingleton<ILocalMediaMetadataService, LocalMediaMetadataService>();
                     services.AddSingleton<IFolderPickerService, FolderPickerService>();
+                    services.AddSingleton<IAudiobookExecutionConfirmationService, AudiobookExecutionConfirmationService>();
                     services.AddSingleton<MainWindowViewModel>();
                     services.AddSingleton<MainWindow>();
                 })

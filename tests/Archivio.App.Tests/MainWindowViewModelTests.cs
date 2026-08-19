@@ -92,7 +92,40 @@ public sealed class MainWindowViewModelTests
         Assert.False(viewModel.ResetSelectedBatchDecisionCommand.CanExecute(null));
     }
 
-    private static MainWindowViewModel CreateViewModel(IAudiobookBatchPlanningService batchPlanningService) =>
+    [Fact]
+    public async Task ExecuteApproved_RequiresConfirmationAndCallsGuardedExecutionService()
+    {
+        var source = new LibrarySource(
+            "Audiobooks",
+            Path.Combine(Path.GetTempPath(), "Metaroq.App.Tests"),
+            LibrarySourceType.Audiobooks);
+        var executionService = new RecordingExecutionService();
+        var confirmation = new RecordingConfirmationService();
+        var viewModel = CreateViewModel(
+            new CountingBatchPlanningService(),
+            executionService,
+            confirmation);
+        viewModel.SelectedSource = source;
+        await WaitUntilAsync(
+            () => viewModel.AudiobookAnalysisStatus == "Saved analysis loaded",
+            TimeSpan.FromSeconds(2));
+        viewModel.AudiobookCandidates.Add(CreateCandidateWithBatchPlan(
+            AudiobookBatchValidationStatus.Ready,
+            AudiobookBatchDecision.Approved,
+            includeOperation: true));
+
+        Assert.True(viewModel.ExecuteApprovedBatchCommand.CanExecute(null));
+        await viewModel.ExecuteApprovedBatchCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, confirmation.ExecutionConfirmationCount);
+        Assert.Equal(1, executionService.ExecutionCount);
+        Assert.Contains("Execution complete", viewModel.AudiobookExecutionStatus, StringComparison.Ordinal);
+    }
+
+    private static MainWindowViewModel CreateViewModel(
+        IAudiobookBatchPlanningService batchPlanningService,
+        IAudiobookBatchExecutionService? executionService = null,
+        IAudiobookExecutionConfirmationService? confirmationService = null) =>
         new(
             Options.Create(new ArchivioOptions()),
             new StubLibrarySourceService(),
@@ -102,10 +135,14 @@ public sealed class MainWindowViewModelTests
             new SavedAnalysisService(),
             new PassthroughOnlineMetadataLookupService(),
             new PassthroughOrganisationService(),
-            batchPlanningService);
+            batchPlanningService,
+            executionService ?? new RecordingExecutionService(),
+            confirmationService ?? new RecordingConfirmationService());
 
     private static AudiobookCandidateGroup CreateCandidateWithBatchPlan(
-        AudiobookBatchValidationStatus validationStatus = AudiobookBatchValidationStatus.Ready) =>
+        AudiobookBatchValidationStatus validationStatus = AudiobookBatchValidationStatus.Ready,
+        AudiobookBatchDecision decision = AudiobookBatchDecision.Pending,
+        bool includeOperation = false) =>
         new(
             "Author - Book",
             "Author",
@@ -122,8 +159,14 @@ public sealed class MainWindowViewModelTests
                 "signature",
                 "Author - Book",
                 validationStatus,
-                AudiobookBatchDecision.Pending,
-                [],
+                decision,
+                includeOperation
+                    ? [new AudiobookFileOperation(
+                        Guid.NewGuid(),
+                        "Incoming\\Book.mp3",
+                        "Author\\Book\\Author - Book.mp3",
+                        AudiobookFileOperationKind.MoveAndRename)]
+                    : [],
                 [],
                 DateTime.UtcNow)
         };
@@ -277,5 +320,58 @@ public sealed class MainWindowViewModelTests
         public void Cancel()
         {
         }
+    }
+
+    private sealed class RecordingExecutionService : IAudiobookBatchExecutionService
+    {
+        public int ExecutionCount { get; private set; }
+
+        public Task<AudiobookExecutionResult> ExecuteApprovedAsync(
+            Guid librarySourceId,
+            string libraryRoot,
+            IReadOnlyList<AudiobookCandidateGroup> candidates,
+            IProgress<AudiobookExecutionProgress>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            ExecutionCount++;
+            return Task.FromResult(new AudiobookExecutionResult(
+                Guid.NewGuid(),
+                AudiobookExecutionRunStatus.Completed,
+                1,
+                1,
+                0,
+                "Execution complete: 1 file moved safely."));
+        }
+
+        public Task<AudiobookExecutionResult> RecoverInterruptedAsync(
+            Guid librarySourceId,
+            string libraryRoot,
+            IProgress<AudiobookExecutionProgress>? progress = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new AudiobookExecutionResult(
+                Guid.NewGuid(),
+                AudiobookExecutionRunStatus.FailedRolledBack,
+                1,
+                1,
+                1,
+                "Interrupted execution recovered safely."));
+
+        public Task<AudiobookExecutionRunEntry?> LoadLatestAsync(
+            Guid librarySourceId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<AudiobookExecutionRunEntry?>(null);
+    }
+
+    private sealed class RecordingConfirmationService : IAudiobookExecutionConfirmationService
+    {
+        public int ExecutionConfirmationCount { get; private set; }
+
+        public bool ConfirmExecution(int planCount, int operationCount)
+        {
+            ExecutionConfirmationCount++;
+            return true;
+        }
+
+        public bool ConfirmRecovery(int operationCount) => true;
     }
 }

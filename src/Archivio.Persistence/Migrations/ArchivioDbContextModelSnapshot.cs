@@ -53,6 +53,43 @@ public partial class ArchivioDbContextModelSnapshot : ModelSnapshot
             entity.ToTable("AudiobookBatchDecisions");
         });
 
+        modelBuilder.Entity<AudiobookExecutionRunEntity>(entity =>
+        {
+            entity.Property(x => x.Id).HasColumnType("TEXT");
+            entity.Property(x => x.LibrarySourceId).HasColumnType("TEXT");
+            entity.Property(x => x.Status).HasColumnType("INTEGER");
+            entity.Property(x => x.PlannedOperationCount).HasColumnType("INTEGER");
+            entity.Property(x => x.CompletedOperationCount).HasColumnType("INTEGER");
+            entity.Property(x => x.RolledBackOperationCount).HasColumnType("INTEGER");
+            entity.Property(x => x.StartedAtUtc).HasColumnType("TEXT");
+            entity.Property(x => x.UpdatedAtUtc).HasColumnType("TEXT");
+            entity.Property(x => x.CompletedAtUtc).HasColumnType("TEXT");
+            entity.Property(x => x.ErrorMessage).HasMaxLength(2048).HasColumnType("TEXT");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.LibrarySourceId, x.StartedAtUtc });
+            entity.ToTable("AudiobookExecutionRuns");
+        });
+
+        modelBuilder.Entity<AudiobookExecutionOperationEntity>(entity =>
+        {
+            entity.Property(x => x.Id).HasColumnType("TEXT");
+            entity.Property(x => x.RunId).HasColumnType("TEXT");
+            entity.Property(x => x.SortOrder).HasColumnType("INTEGER");
+            entity.Property(x => x.PlanKey).IsRequired().HasMaxLength(64).HasColumnType("TEXT");
+            entity.Property(x => x.InputSignature).IsRequired().HasMaxLength(64).HasColumnType("TEXT");
+            entity.Property(x => x.MediaItemId).HasColumnType("TEXT");
+            entity.Property(x => x.SourceRelativePath).IsRequired().HasMaxLength(2048).HasColumnType("TEXT");
+            entity.Property(x => x.DestinationRelativePath).IsRequired().HasMaxLength(2048).HasColumnType("TEXT");
+            entity.Property(x => x.Kind).HasColumnType("INTEGER");
+            entity.Property(x => x.Status).HasColumnType("INTEGER");
+            entity.Property(x => x.SourceSizeBytes).HasColumnType("INTEGER");
+            entity.Property(x => x.SourceModifiedAtUtc).HasColumnType("TEXT");
+            entity.Property(x => x.ErrorMessage).HasMaxLength(2048).HasColumnType("TEXT");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.RunId, x.SortOrder }).IsUnique();
+            entity.ToTable("AudiobookExecutionOperations");
+        });
+
         modelBuilder.Entity<AudiobookMetadataCacheEntity>(entity =>
         {
             entity.Property(x => x.MediaItemId).HasColumnType("TEXT");
@@ -160,6 +197,20 @@ public partial class ArchivioDbContextModelSnapshot : ModelSnapshot
             .HasOne<LibrarySource>()
             .WithMany()
             .HasForeignKey(x => x.LibrarySourceId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .IsRequired();
+
+        modelBuilder.Entity<AudiobookExecutionRunEntity>()
+            .HasOne<LibrarySource>()
+            .WithMany()
+            .HasForeignKey(x => x.LibrarySourceId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .IsRequired();
+
+        modelBuilder.Entity<AudiobookExecutionOperationEntity>()
+            .HasOne(x => x.Run)
+            .WithMany(x => x.Operations)
+            .HasForeignKey(x => x.RunId)
             .OnDelete(DeleteBehavior.Cascade)
             .IsRequired();
 

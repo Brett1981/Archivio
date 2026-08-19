@@ -25,7 +25,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         IAudiobookAnalysisService audiobookAnalysisService,
         IOnlineMetadataLookupService onlineMetadataLookupService,
         IAudiobookOrganisationService audiobookOrganisationService,
-        IAudiobookBatchPlanningService audiobookBatchPlanningService)
+        IAudiobookBatchPlanningService audiobookBatchPlanningService,
+        IAudiobookBatchExecutionService audiobookBatchExecutionService,
+        IAudiobookExecutionConfirmationService audiobookExecutionConfirmationService)
     {
         _librarySourceService = librarySourceService;
         _folderPickerService = folderPickerService;
@@ -35,6 +37,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _onlineMetadataLookupService = onlineMetadataLookupService;
         _audiobookOrganisationService = audiobookOrganisationService;
         _audiobookBatchPlanningService = audiobookBatchPlanningService;
+        _audiobookBatchExecutionService = audiobookBatchExecutionService;
+        _audiobookExecutionConfirmationService = audiobookExecutionConfirmationService;
         _backgroundScanService.ProgressChanged += HandleScanProgress;
         _backgroundScanService.ScanCompleted += HandleScanCompleted;
         _backgroundScanService.ScanFailed += HandleScanFailed;
@@ -79,12 +83,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(DeleteCommand))]
     [NotifyCanExecuteChangedFor(nameof(StartScanCommand))]
     [NotifyCanExecuteChangedFor(nameof(AnalyseAudiobooksCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExecuteApprovedBatchCommand))]
     private bool _isBusy;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(StartScanCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelScanCommand))]
     [NotifyCanExecuteChangedFor(nameof(AnalyseAudiobooksCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExecuteApprovedBatchCommand))]
     private bool _isScanRunning;
 
     [ObservableProperty]
@@ -173,7 +179,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    private bool CanSave() => !IsBusy && !IsScanRunning &&
+    private bool CanSave() => !IsBusy && !IsScanRunning && !IsAudiobookExecutionRunning &&
         !string.IsNullOrWhiteSpace(SourceName) && !string.IsNullOrWhiteSpace(SourcePath);
 
     [RelayCommand(CanExecute = nameof(CanSave))]
@@ -198,7 +204,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         });
     }
 
-    private bool CanDelete() => !IsBusy && !IsScanRunning && SelectedSource is not null;
+    private bool CanDelete() => !IsBusy && !IsScanRunning && !IsAudiobookExecutionRunning && SelectedSource is not null;
 
     [RelayCommand(CanExecute = nameof(CanDelete))]
     private async Task DeleteAsync()
@@ -218,7 +224,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         });
     }
 
-    private bool CanStartScan() => !IsBusy && !IsScanRunning && SelectedSource is { IsEnabled: true };
+    private bool CanStartScan() => !IsBusy && !IsScanRunning && !IsAudiobookExecutionRunning && SelectedSource is { IsEnabled: true };
 
     [RelayCommand(CanExecute = nameof(CanStartScan))]
     private async Task StartScanAsync()
@@ -342,7 +348,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task ExecuteAsync(Func<Task> action)
     {
-        if (IsBusy || IsScanRunning)
+        if (IsBusy || IsScanRunning || IsAudiobookExecutionRunning)
         {
             return;
         }
