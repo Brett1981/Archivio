@@ -4,12 +4,16 @@
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../../src/Archivio.Application/Archivio.Application.csproj" />
+    <ProjectReference Include="../../src/Archivio.Domain/Archivio.Domain.csproj" />
+    <ProjectReference Include="../../src/Archivio.Media/Archivio.Media.csproj" />
+    <ProjectReference Include="../../src/Archivio.Metadata/Archivio.Metadata.csproj" />
     <ProjectReference Include="../../src/Archivio.Shared/Archivio.Shared.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" />
-    <PackageReference Include="xunit" />
-    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
-    <PackageReference Include="coverlet.collector" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0" PrivateAssets="all" />
+    <PackageReference Include="coverlet.collector" Version="10.0.1" PrivateAssets="all" />
   </ItemGroup>
 </Project>

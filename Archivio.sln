@@ -24,6 +24,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Archivio.UnitTests", "tests
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Archivio.IntegrationTests", "tests\Archivio.IntegrationTests\Archivio.IntegrationTests.csproj", "{FD67208D-921C-48C4-AA34-BB8E2805D825}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Archivio.App.Tests", "tests\Archivio.App.Tests\Archivio.App.Tests.csproj", "{A4BEA118-06BF-4A70-8A2F-95E2658B6487}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -74,5 +76,9 @@ Global
 		{FD67208D-921C-48C4-AA34-BB8E2805D825}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FD67208D-921C-48C4-AA34-BB8E2805D825}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{FD67208D-921C-48C4-AA34-BB8E2805D825}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A4BEA118-06BF-4A70-8A2F-95E2658B6487}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A4BEA118-06BF-4A70-8A2F-95E2658B6487}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A4BEA118-06BF-4A70-8A2F-95E2658B6487}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A4BEA118-06BF-4A70-8A2F-95E2658B6487}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

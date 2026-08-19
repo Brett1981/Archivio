@@ -3,7 +3,10 @@ using System.Windows;
 using Archivio.Application;
 using Archivio.Application.Abstractions;
 using Archivio.Infrastructure;
+using Archivio.Media;
+using Archivio.Metadata;
 using Archivio.Persistence;
+using Archivio.Workers;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -44,6 +47,10 @@ public partial class App : System.Windows.Application
                     services.AddApplication(context.Configuration);
                     services.AddInfrastructure();
                     services.AddPersistence();
+                    services.AddMedia();
+                    services.AddWorkers();
+                    services.AddSingleton<ILocalMediaMetadataService, LocalMediaMetadataService>();
+                    services.AddSingleton<IFolderPickerService, FolderPickerService>();
                     services.AddSingleton<MainWindowViewModel>();
                     services.AddSingleton<MainWindow>();
                 })
