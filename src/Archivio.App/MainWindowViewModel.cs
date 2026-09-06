@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Windows;
+using System.Windows.Threading;
 using Archivio.Application.Abstractions;
 using Archivio.Application.Configuration;
 using Archivio.Domain;
@@ -15,6 +16,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly IFolderPickerService _folderPickerService;
     private readonly IBackgroundScanService _backgroundScanService;
     private readonly IMediaCatalogueService _mediaCatalogueService;
+    private readonly IAudioPreviewService _audioPreviewService;
+    private readonly Dispatcher? _uiDispatcher;
 
     public MainWindowViewModel(
         IOptions<ArchivioOptions> options,
@@ -25,7 +28,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
         IAudiobookAnalysisService audiobookAnalysisService,
         IOnlineMetadataLookupService onlineMetadataLookupService,
         IAudiobookOrganisationService audiobookOrganisationService,
-        IAudiobookBatchPlanningService audiobookBatchPlanningService)
+        IAudiobookBatchPlanningService audiobookBatchPlanningService,
+        IAudiobookBatchExecutionService audiobookBatchExecutionService,
+        IAudiobookExecutionConfirmationService audiobookExecutionConfirmationService,
+        IAudioPreviewService audioPreviewService)
     {
         _librarySourceService = librarySourceService;
         _folderPickerService = folderPickerService;
@@ -35,6 +41,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _onlineMetadataLookupService = onlineMetadataLookupService;
         _audiobookOrganisationService = audiobookOrganisationService;
         _audiobookBatchPlanningService = audiobookBatchPlanningService;
+        _audiobookBatchExecutionService = audiobookBatchExecutionService;
+        _audiobookExecutionConfirmationService = audiobookExecutionConfirmationService;
+        _audioPreviewService = audioPreviewService;
+        _uiDispatcher = System.Windows.Application.Current?.Dispatcher;
         _backgroundScanService.ProgressChanged += HandleScanProgress;
         _backgroundScanService.ScanCompleted += HandleScanCompleted;
         _backgroundScanService.ScanFailed += HandleScanFailed;
@@ -79,12 +89,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(DeleteCommand))]
     [NotifyCanExecuteChangedFor(nameof(StartScanCommand))]
     [NotifyCanExecuteChangedFor(nameof(AnalyseAudiobooksCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExecuteApprovedBatchCommand))]
     private bool _isBusy;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(StartScanCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelScanCommand))]
     [NotifyCanExecuteChangedFor(nameof(AnalyseAudiobooksCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExecuteApprovedBatchCommand))]
     private bool _isScanRunning;
 
     [ObservableProperty]
@@ -173,7 +185,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    private bool CanSave() => !IsBusy && !IsScanRunning &&
+    private bool CanSave() => !IsBusy && !IsScanRunning && !IsAudiobookExecutionRunning &&
         !string.IsNullOrWhiteSpace(SourceName) && !string.IsNullOrWhiteSpace(SourcePath);
 
     [RelayCommand(CanExecute = nameof(CanSave))]
@@ -198,7 +210,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         });
     }
 
-    private bool CanDelete() => !IsBusy && !IsScanRunning && SelectedSource is not null;
+    private bool CanDelete() => !IsBusy && !IsScanRunning && !IsAudiobookExecutionRunning && SelectedSource is not null;
 
     [RelayCommand(CanExecute = nameof(CanDelete))]
     private async Task DeleteAsync()
@@ -218,7 +230,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         });
     }
 
-    private bool CanStartScan() => !IsBusy && !IsScanRunning && SelectedSource is { IsEnabled: true };
+    private bool CanStartScan() => !IsBusy && !IsScanRunning && !IsAudiobookExecutionRunning && SelectedSource is { IsEnabled: true };
 
     [RelayCommand(CanExecute = nameof(CanStartScan))]
     private async Task StartScanAsync()
@@ -315,16 +327,37 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ScanCurrentPath = string.Empty;
     }
 
-    private static void RunOnUiThread(Action action)
+    private void RunOnUiThread(Action action)
     {
-        var dispatcher = global::System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher is null || dispatcher.CheckAccess())
+        var dispatcher = _uiDispatcher;
+        if (dispatcher is null)
         {
             action();
+            return;
         }
-        else
+
+        if (dispatcher.CheckAccess())
         {
-            dispatcher.Invoke(action);
+            if (!dispatcher.HasShutdownStarted && !dispatcher.HasShutdownFinished)
+            {
+                action();
+            }
+
+            return;
+        }
+
+        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+
+        try
+        {
+            dispatcher.BeginInvoke(action, DispatcherPriority.DataBind);
+        }
+        catch (InvalidOperationException) when (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            // The application is already closing; late worker progress can be discarded safely.
         }
     }
 
@@ -342,7 +375,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task ExecuteAsync(Func<Task> action)
     {
-        if (IsBusy || IsScanRunning)
+        if (IsBusy || IsScanRunning || IsAudiobookExecutionRunning)
         {
             return;
         }

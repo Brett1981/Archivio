@@ -268,15 +268,19 @@
                         </StackPanel>
                     </DockPanel>
                     <WrapPanel Grid.Row="2" Grid.ColumnSpan="3">
-                        <TextBlock Foreground="#CBD5E1" Margin="0,0,14,0"><Run Text="{Binding VisibleAudiobookCandidateCount, Mode=OneWay}" /><Run Text=" / " /><Run Text="{Binding AudiobookCandidateCount, Mode=OneWay}" /><Run Text=" candidates" /></TextBlock>
+                        <TextBlock Text="{Binding AudiobookReviewCountLabel}" Foreground="#CBD5E1" Margin="0,0,14,0" />
                         <TextBlock Foreground="#CBD5E1" Margin="0,0,14,0"><Run Text="{Binding MultipartAudiobookCount, Mode=OneWay}" /><Run Text=" multipart" /></TextBlock>
                         <TextBlock Foreground="#CBD5E1" Margin="0,0,14,0"><Run Text="{Binding SingleFileAudiobookCount, Mode=OneWay}" /><Run Text=" single" /></TextBlock>
                         <TextBlock Foreground="#F59E0B" Margin="0,0,14,0"><Run Text="{Binding AudiobooksNeedingReviewCount, Mode=OneWay}" /><Run Text=" need review" /></TextBlock>
                         <TextBlock Foreground="{StaticResource MetaroqAqua}" Margin="0,0,14,0"><Run Text="{Binding OnlineSuggestionCount, Mode=OneWay}" /><Run Text=" online suggestions" /></TextBlock>
                         <TextBlock Foreground="{StaticResource MetaroqAccent}" Margin="0,0,14,0"><Run Text="{Binding OrganisationPlanCount, Mode=OneWay}" /><Run Text=" plans" /></TextBlock>
-                        <TextBlock Foreground="{StaticResource MetaroqAqua}" Margin="0,0,14,0"><Run Text="{Binding AutomaticReadyPlanCount, Mode=OneWay}" /><Run Text=" automation-ready" /></TextBlock>
-                        <TextBlock Foreground="{StaticResource MetaroqAqua}" Margin="0,0,14,0"><Run Text="{Binding BatchReadyCount, Mode=OneWay}" /><Run Text=" batch-safe" /></TextBlock>
+                        <TextBlock Foreground="{StaticResource MetaroqAqua}" Margin="0,0,14,0"><Run Text="{Binding AlreadyOrganisedPlanCount, Mode=OneWay}" /><Run Text=" already organised" /></TextBlock>
+                        <TextBlock Foreground="#F59E0B" Margin="0,0,14,0"><Run Text="{Binding MetadataReviewPlanCount, Mode=OneWay}" /><Run Text=" metadata review" /></TextBlock>
+                        <TextBlock Foreground="#F59E0B" Margin="0,0,14,0"><Run Text="{Binding BatchConflictCount, Mode=OneWay}" /><Run Text=" conflicts" /></TextBlock>
+                        <TextBlock Foreground="{StaticResource MetaroqAqua}" Margin="0,0,14,0"><Run Text="{Binding BulkApprovalEligibleCount, Mode=OneWay}" /><Run Text=" bulk-safe singles" /></TextBlock>
+                        <TextBlock Foreground="#F59E0B" Margin="0,0,14,0"><Run Text="{Binding IndividualApprovalRequiredCount, Mode=OneWay}" /><Run Text=" multi-file review" /></TextBlock>
                         <TextBlock Foreground="{StaticResource MetaroqSand}" Margin="0,0,14,0"><Run Text="{Binding BatchApprovedCount, Mode=OneWay}" /><Run Text=" approved" /></TextBlock>
+                        <TextBlock Foreground="{StaticResource MetaroqAqua}" Margin="0,0,14,0"><Run Text="{Binding BatchExecutableOperationCount, Mode=OneWay}" /><Run Text=" executable files" /></TextBlock>
                         <TextBlock Foreground="#F59E0B"><Run Text="{Binding BatchBlockedCount, Mode=OneWay}" /><Run Text=" blocked" /></TextBlock>
                     </WrapPanel>
                     <StackPanel Grid.Row="4" Grid.ColumnSpan="3">
@@ -292,6 +296,14 @@
                         <TextBlock Text="{Binding OnlineMetadataStatus}" Foreground="{StaticResource MetaroqAqua}" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
                         <TextBlock Text="{Binding OrganisationStatus}" Foreground="{StaticResource MetaroqAccent}" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
                         <TextBlock Text="{Binding BatchPlanningStatus}" Foreground="{StaticResource MetaroqSand}" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
+                        <DockPanel Margin="0,5,0,0">
+                            <TextBlock Text="{Binding AudiobookExecutionStatus}" Foreground="{StaticResource MetaroqAqua}" FontSize="10" TextTrimming="CharacterEllipsis" />
+                            <TextBlock DockPanel.Dock="Right" Foreground="#94A3B8" FontSize="10">
+                                <Run Text="{Binding AudiobookExecutionProcessedCount, Mode=OneWay}" /><Run Text=" / " /><Run Text="{Binding AudiobookExecutionTotalCount, Mode=OneWay}" />
+                            </TextBlock>
+                        </DockPanel>
+                        <ProgressBar Minimum="0" Maximum="{Binding AudiobookExecutionProgressMaximum}" Value="{Binding AudiobookExecutionProcessedCount}" Height="4" Margin="0,4,0,0" />
+                        <TextBlock Text="{Binding AudiobookExecutionCurrentPath}" Foreground="#64748B" FontSize="9" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
                         <TextBox Text="{Binding AudiobookSearchText, UpdateSourceTrigger=PropertyChanged}" Padding="8,5" Margin="0,7,0,0" ToolTip="Search audiobook title, author, or file path" />
                         <UniformGrid Columns="3" Margin="0,6,0,0">
                             <UniformGrid.Resources>
@@ -315,14 +327,22 @@
                                       ToolTip="Also require a saved online suggestion" />
                         </UniformGrid>
                         <UniformGrid Columns="3" Margin="0,2,0,0">
-                            <Button Content="Approve all safe" Command="{Binding ApproveSafeBatchCommand}" Style="{StaticResource MetaroqPrimaryButtonStyle}" Padding="8,5" Margin="0,0,8,0"
-                                    ToolTip="Save approval for every conflict-free plan; this does not change media files" />
+                            <Button Content="{Binding ApproveSafeBatchLabel}" Command="{Binding ApproveSafeBatchCommand}" Padding="8,5" Margin="0,0,8,0"
+                                    ToolTip="Approve only clean, 100%-confidence single-file audiobooks. Multi-file plans always require individual review." />
                             <Button Content="Defer blocked" Command="{Binding DeferBlockedBatchCommand}" Padding="8,5" Margin="0,0,8,0"
                                     ToolTip="Mark review-required and conflicting plans as deferred" />
                             <Button Content="Reset decisions" Command="{Binding ResetBatchDecisionsCommand}" Padding="8,5"
                                     ToolTip="Return all saved batch decisions to pending" />
                         </UniformGrid>
-                        <TextBlock Text="Dry run only — approvals are stored in Metaroq; no media files are moved or renamed."
+                        <UniformGrid Columns="3" Margin="0,4,0,0">
+                            <Button Content="Execute approved" Command="{Binding ExecuteApprovedBatchCommand}" Style="{StaticResource MetaroqPrimaryButtonStyle}" Padding="8,5" Margin="0,0,8,0"
+                                    ToolTip="Revalidate and execute approved move/rename operations with a persistent rollback journal" />
+                            <Button Content="Recover interrupted" Command="{Binding RecoverInterruptedExecutionCommand}" Padding="8,5" Margin="0,0,8,0"
+                                    ToolTip="Safely restore files recorded by an interrupted execution" />
+                            <Button Content="Cancel execution" Command="{Binding CancelAudiobookExecutionCommand}" Padding="8,5"
+                                    ToolTip="Stop execution and roll back completed moves" />
+                        </UniformGrid>
+                        <TextBlock Text="Execution is always confirmed, revalidated, journalled, and non-overwriting. Combining and deletion remain disabled."
                                    Foreground="#94A3B8" FontSize="9" Margin="0,5,0,0" TextWrapping="Wrap" />
                     </StackPanel>
                     <ListBox Grid.Row="6" ItemsSource="{Binding AudiobookCandidatesView}" SelectedItem="{Binding SelectedAudiobookCandidate}"
@@ -333,22 +353,18 @@
                                     <Grid>
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                         <StackPanel>
-                                            <TextBlock Text="{Binding AuthorDisplay}" Foreground="#94A3B8" FontSize="11" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding Title}" Foreground="White" FontWeight="SemiBold" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding TypeLabel}" Foreground="#64748B" FontSize="11" Margin="0,3,0,0" />
-                                            <TextBlock Text="{Binding MetadataStatusLabel}" Foreground="{StaticResource MetaroqAqua}" FontSize="10" Margin="0,2,0,0" />
-                                            <TextBlock Text="{Binding MetadataProvenanceSummary}" Foreground="#64748B" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding OnlineSuggestion.ProvenanceDisplay}" Foreground="{StaticResource MetaroqAqua}" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding OrganisationProposal.ProposalSummary}" Foreground="{StaticResource MetaroqAccent}" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding OrganisationProposal.DestinationDisplay}" Foreground="#64748B" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding BatchPlan.Summary}" Foreground="{StaticResource MetaroqSand}" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding ReviewAuthorDisplay}" Foreground="#94A3B8" FontSize="11" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding ReviewTitle}" Foreground="White" FontWeight="SemiBold" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding ReviewItemSummary}" Foreground="{StaticResource MetaroqAqua}" FontSize="10" Margin="0,4,0,0" />
+                                            <TextBlock Text="{Binding ReviewPlannedResult, StringFormat=Planned result: {0}}" Foreground="{StaticResource MetaroqAccent}" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding BatchApprovalSummary}" Foreground="{StaticResource MetaroqSand}" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{Binding BatchPlan.DecisionLabel}" Foreground="#94A3B8" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="1" Margin="10,0,0,0">
-                                            <TextBlock Text="{Binding Confidence, StringFormat={}{0:P0}}" Foreground="{StaticResource MetaroqAqua}" HorizontalAlignment="Right" />
-                                            <TextBlock Text="{Binding ReviewLabel}" FontSize="10" Margin="0,4,0,0" HorizontalAlignment="Right">
+                                            <TextBlock Text="{Binding ReviewConfidence, StringFormat={}{0:P0}}" Foreground="{StaticResource MetaroqAqua}" HorizontalAlignment="Right" />
+                                            <TextBlock Text="{Binding ReviewItemStatusLabel}" FontSize="10" Margin="0,4,0,0" HorizontalAlignment="Right">
                                                 <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource MetaroqAqua}" />
-                                                    <Style.Triggers><DataTrigger Binding="{Binding NeedsReview}" Value="True"><Setter Property="Foreground" Value="#F59E0B" /></DataTrigger></Style.Triggers>
+                                                    <Style.Triggers><DataTrigger Binding="{Binding ReviewItemNeedsReview}" Value="True"><Setter Property="Foreground" Value="#F59E0B" /></DataTrigger></Style.Triggers>
                                                 </Style></TextBlock.Style>
                                             </TextBlock>
                                         </StackPanel>
@@ -360,11 +376,53 @@
                     <Border x:Name="CandidateDetailsPanel" Grid.Row="8" Background="{StaticResource MetaroqSurface}" BorderBrush="{StaticResource MetaroqBorder}" BorderThickness="1" CornerRadius="8" Padding="13">
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <StackPanel DataContext="{Binding SelectedAudiobookCandidate}">
-                                <TextBlock Text="Candidate details" Foreground="White" FontWeight="SemiBold" />
-                                <TextBlock Text="{Binding AuthorDisplay, TargetNullValue=Select a candidate}" Foreground="#94A3B8" Margin="0,9,0,0" />
-                                <TextBlock Text="{Binding Title}" Foreground="White" FontSize="16" FontWeight="SemiBold" Margin="0,3,0,0" TextWrapping="Wrap" />
-                                <TextBlock Foreground="#CBD5E1" Margin="0,7,0,0"><Run Text="{Binding TypeLabel, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding Confidence, Mode=OneWay, StringFormat={}{0:P0}}" /></TextBlock>
-                                <TextBlock Text="{Binding MetadataProvenanceSummary}" Foreground="{StaticResource MetaroqAqua}" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                <TextBlock Text="Audiobook plan" Foreground="White" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding ReviewAuthorDisplay, TargetNullValue=Select an audiobook}" Foreground="#94A3B8" Margin="0,9,0,0" />
+                                <TextBlock Text="{Binding ReviewTitle}" Foreground="White" FontSize="18" FontWeight="SemiBold" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                <TextBlock Foreground="#CBD5E1" Margin="0,7,0,0"><Run Text="{Binding ReviewItemSummary, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding ReviewConfidence, Mode=OneWay, StringFormat={}{0:P0}}" /></TextBlock>
+                                <Border Background="{StaticResource MetaroqSurfaceRaised}" CornerRadius="6" Padding="10" Margin="0,10,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Planned result" Foreground="{StaticResource MetaroqAqua}" FontSize="10" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding ReviewPlannedResult}" Foreground="White" FontWeight="SemiBold" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                        <TextBlock Text="Files remain separate and ordered; no source file is deleted or overwritten." Foreground="#94A3B8" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
+                                <TextBlock Text="How should Metaroq handle this audiobook?" Foreground="#CBD5E1" FontSize="10" FontWeight="SemiBold" Margin="0,13,0,5" />
+                                <Border Background="#202034" BorderBrush="{StaticResource MetaroqAccent}" BorderThickness="1" CornerRadius="6" Padding="9">
+                                    <StackPanel>
+                                        <RadioButton Content="{Binding ReviewHandlingLabel}" IsChecked="True" IsHitTestVisible="False" Foreground="White" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding ReviewHandlingDetail}" Foreground="#94A3B8" FontSize="10" Margin="22,3,0,0" />
+                                    </StackPanel>
+                                </Border>
+                                <Border Background="{StaticResource MetaroqSurfaceRaised}" CornerRadius="6" Padding="9" Margin="0,6,0,0" Opacity="0.55">
+                                    <StackPanel>
+                                        <RadioButton Content="Move to one folder only" IsEnabled="False" Foreground="White" />
+                                        <TextBlock Text="Planned option — preserve current filenames" Foreground="#94A3B8" FontSize="10" Margin="22,3,0,0" />
+                                    </StackPanel>
+                                </Border>
+                                <Border Background="{StaticResource MetaroqSurfaceRaised}" CornerRadius="6" Padding="9" Margin="0,6,0,0" Opacity="0.55">
+                                    <StackPanel>
+                                        <RadioButton Content="Combine into one audiobook file" IsEnabled="False" Foreground="White" />
+                                        <TextBlock Text="Available after format and chapter-boundary checks are implemented" Foreground="#94A3B8" FontSize="10" Margin="22,3,0,0" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
+                                <Border Background="{StaticResource MetaroqSurfaceRaised}" CornerRadius="6" Padding="10" Margin="0,9,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Collection structure" Foreground="White" FontWeight="SemiBold" />
+                                        <TextBlock Text="If every source file is a complete book, split this collection before confirming individual titles. Metaroq will check each book online separately."
+                                                   Foreground="#94A3B8" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                        <TextBlock Text="Series name (optional)" Foreground="#CBD5E1" FontSize="10" Margin="0,8,0,3" />
+                                        <TextBox Text="{Binding DataContext.SelectedAudiobookSeriesName, RelativeSource={RelativeSource AncestorType=Window}, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                 ToolTip="For example, Earth Chronicles" />
+                                        <Button Content="These source files are separate books"
+                                                Style="{StaticResource MetaroqPrimaryButtonStyle}"
+                                                Command="{Binding DataContext.SeparateSelectedCollectionCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                Padding="8,5" Margin="0,7,0,0"
+                                                ToolTip="Create one independently reviewed audiobook plan per source file" />
+                                        <TextBlock Text="{Binding DataContext.AudiobookCollectionCorrectionStatus, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                   Foreground="{StaticResource MetaroqAqua}" FontSize="9" Margin="0,5,0,0" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
                                 <TextBlock Text="Online suggestion" Foreground="White" FontWeight="SemiBold" Margin="0,12,0,4" />
                                 <TextBlock Text="{Binding OnlineSuggestion.Title}" Foreground="{StaticResource MetaroqAqua}" FontWeight="SemiBold" TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding OnlineSuggestion.AuthorDisplay}" Foreground="#CBD5E1" Margin="0,3,0,0" TextWrapping="Wrap" />
@@ -373,7 +431,7 @@
                                 </TextBlock>
                                 <TextBlock Text="{Binding OnlineSuggestion.SubjectDisplay}" Foreground="#64748B" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding OnlineSuggestion.MatchReason}" Foreground="#64748B" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
-                                <TextBlock Text="Read-only organisation plan" Foreground="White" FontWeight="SemiBold" Margin="0,13,0,5" />
+                                <TextBlock Text="Organisation plan" Foreground="White" FontWeight="SemiBold" Margin="0,13,0,5" />
                                 <TextBlock Text="{Binding OrganisationProposal.CanonicalDisplay}" Foreground="{StaticResource MetaroqAccent}" FontWeight="SemiBold" TextWrapping="Wrap" />
                                 <TextBlock Foreground="#CBD5E1" Margin="0,4,0,0" TextWrapping="Wrap">
                                     <Run Text="{Binding OrganisationProposal.ActionLabel, Mode=OneWay}" /><Run Text="  ·  " />
@@ -382,6 +440,135 @@
                                 </TextBlock>
                                 <TextBlock Text="{Binding OrganisationProposal.GroupSummary}" Foreground="#94A3B8" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding OrganisationProposal.ReadinessLabel}" Foreground="{StaticResource MetaroqAqua}" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                <Border Background="{StaticResource MetaroqSurfaceRaised}" CornerRadius="6" Padding="10" Margin="0,10,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Source evidence" Foreground="White" FontWeight="SemiBold" />
+                                        <TextBlock Text="Select a source file to compare its original name, folder, and embedded metadata before correcting the audiobook."
+                                                   Foreground="#94A3B8" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                        <ListBox ItemsSource="{Binding DataContext.SelectedAudiobookSourceEvidence, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                 SelectedItem="{Binding DataContext.SelectedAudiobookSourcePart, RelativeSource={RelativeSource AncestorType=Window}, Mode=TwoWay}"
+                                                 Background="{StaticResource MetaroqSurface}" BorderBrush="{StaticResource MetaroqBorder}"
+                                                 BorderThickness="1" MaxHeight="130" Margin="0,8,0,0"
+                                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                            <ListBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid Margin="5,4">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="28" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock Text="{Binding Sequence}" Foreground="{StaticResource MetaroqAqua}" FontWeight="SemiBold" />
+                                                        <StackPanel Grid.Column="1">
+                                                            <TextBlock Text="{Binding MediaItem.FileName}" Foreground="White" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                            <TextBlock Text="{Binding MediaItem.RelativePath}" Foreground="#94A3B8" FontSize="9" TextTrimming="CharacterEllipsis" />
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ListBox.ItemTemplate>
+                                        </ListBox>
+                                        <Border Background="{StaticResource MetaroqSurface}" CornerRadius="4" Padding="8" Margin="0,7,0,0"
+                                                DataContext="{Binding DataContext.SelectedAudiobookSourcePart, RelativeSource={RelativeSource AncestorType=Window}}">
+                                            <StackPanel>
+                                                <TextBlock Foreground="#CBD5E1" TextWrapping="Wrap">
+                                                    <Run Text="Original filename: " /><Run Text="{Binding MediaItem.FileName, Mode=OneWay}" FontWeight="SemiBold" Foreground="White" />
+                                                </TextBlock>
+                                                <TextBlock Foreground="#94A3B8" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap">
+                                                    <Run Text="Library path: " /><Run Text="{Binding MediaItem.RelativePath, Mode=OneWay}" />
+                                                </TextBlock>
+                                                <TextBlock Foreground="#CBD5E1" FontSize="10" Margin="0,5,0,0" TextWrapping="Wrap">
+                                                    <Run Text="Embedded title: " /><Run Text="{Binding Metadata.TitleDisplay, Mode=OneWay}" />
+                                                    <Run Text="  ·  Author: " /><Run Text="{Binding Metadata.AuthorDisplay, Mode=OneWay}" />
+                                                </TextBlock>
+                                                <TextBlock Foreground="#94A3B8" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap">
+                                                    <Run Text="Album: " /><Run Text="{Binding Metadata.AlbumDisplay, Mode=OneWay}" />
+                                                    <Run Text="  ·  " /><Run Text="{Binding Metadata.ReleaseDetailsDisplay, Mode=OneWay}" />
+                                                    <Run Text="  ·  " /><Run Text="{Binding Metadata.DurationDisplay, Mode=OneWay}" />
+                                                </TextBlock>
+                                            </StackPanel>
+                                        </Border>
+                                        <Button Content="Play selected source file"
+                                                Command="{Binding DataContext.PlaySelectedAudiobookSourceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                Padding="8,5" Margin="0,7,0,0" HorizontalAlignment="Left"
+                                                ToolTip="Open this source file in the Windows default audio player" />
+                                        <TextBlock Text="{Binding DataContext.AudiobookPreviewStatus, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                   Foreground="{StaticResource MetaroqAqua}" FontSize="9" Margin="0,5,0,0" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
+                                <Border Background="{StaticResource MetaroqSurfaceRaised}" CornerRadius="6" Padding="10" Margin="0,10,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Confirm author and title" Foreground="White" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding OrganisationProposal.IdentitySourceLabel}"
+                                                   Foreground="#94A3B8" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                        <TextBlock Text="Author" Foreground="#CBD5E1" FontSize="10" Margin="0,8,0,3" />
+                                        <TextBox Text="{Binding DataContext.SelectedAudiobookAuthorOverride, RelativeSource={RelativeSource AncestorType=Window}, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                 ToolTip="Enter the complete author name" />
+                                        <TextBlock Text="Audiobook title" Foreground="#CBD5E1" FontSize="10" Margin="0,7,0,3" />
+                                        <TextBox Text="{Binding DataContext.SelectedAudiobookTitleOverride, RelativeSource={RelativeSource AncestorType=Window}, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                 ToolTip="Enter the complete audiobook title, not a chapter name" />
+                                        <UniformGrid Columns="2" Margin="0,7,0,0">
+                                            <Button Content="Confirm author and title" Style="{StaticResource MetaroqPrimaryButtonStyle}"
+                                                    Command="{Binding DataContext.ApplySelectedIdentityOverrideCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    Padding="8,5" Margin="0,0,6,0"
+                                                    ToolTip="Save this identity and immediately revalidate the plan" />
+                                            <Button Content="Use Metaroq identity"
+                                                    Command="{Binding DataContext.ResetSelectedIdentityOverrideCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    Padding="8,5"
+                                                    ToolTip="Remove your saved author and title correction" />
+                                        </UniformGrid>
+                                        <TextBlock Text="{Binding DataContext.AudiobookIdentityCorrectionStatus, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                   Foreground="{StaticResource MetaroqAqua}" FontSize="9" Margin="0,5,0,0" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
+                                <Border Background="{StaticResource MetaroqSurfaceRaised}" CornerRadius="6" Padding="10" Margin="0,10,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Optional series metadata" Foreground="White" FontWeight="SemiBold" />
+                                        <TextBlock Text="Metaroq stores this in its library catalogue and uses it to create a series folder. Embedded audio tags are not rewritten."
+                                                   Foreground="#94A3B8" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                        <Grid Margin="0,8,0,0">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="95" /></Grid.ColumnDefinitions>
+                                            <StackPanel Margin="0,0,7,0">
+                                                <TextBlock Text="Series name" Foreground="#CBD5E1" FontSize="10" Margin="0,0,0,3" />
+                                                <TextBox Text="{Binding DataContext.SelectedAudiobookSeriesName, RelativeSource={RelativeSource AncestorType=Window}, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="Book number" Foreground="#CBD5E1" FontSize="10" Margin="0,0,0,3" />
+                                                <TextBox Text="{Binding DataContext.SelectedAudiobookSeriesPosition, RelativeSource={RelativeSource AncestorType=Window}, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                            </StackPanel>
+                                        </Grid>
+                                        <UniformGrid Columns="2" Margin="0,7,0,0">
+                                            <Button Content="Save series details" Style="{StaticResource MetaroqPrimaryButtonStyle}"
+                                                    Command="{Binding DataContext.ApplySelectedSeriesOverrideCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    Padding="8,5" Margin="0,0,6,0" />
+                                            <Button Content="Clear series details"
+                                                    Command="{Binding DataContext.ResetSelectedSeriesOverrideCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    Padding="8,5" />
+                                        </UniformGrid>
+                                    </StackPanel>
+                                </Border>
+                                <Border Background="{StaticResource MetaroqSurfaceRaised}" CornerRadius="6" Padding="10" Margin="0,10,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Confirm genre" Foreground="White" FontWeight="SemiBold" />
+                                        <TextBlock Foreground="#94A3B8" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap">
+                                            <Run Text="{Binding OrganisationProposal.GenreSourceLabel, Mode=OneWay}" /><Run Text=" · Choose the library category for this audiobook." />
+                                        </TextBlock>
+                                        <ComboBox Margin="0,8,0,0" Padding="7,5"
+                                                  ItemsSource="{Binding DataContext.AudiobookGenreCategories, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                  SelectedItem="{Binding DataContext.SelectedAudiobookGenreOverride, RelativeSource={RelativeSource AncestorType=Window}, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                  ToolTip="Choose the genre folder for this audiobook" />
+                                        <UniformGrid Columns="2" Margin="0,7,0,0">
+                                            <Button Content="Confirm genre" Style="{StaticResource MetaroqPrimaryButtonStyle}"
+                                                    Command="{Binding DataContext.ApplySelectedGenreOverrideCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    Padding="8,5" Margin="0,0,6,0"
+                                                    ToolTip="Save this genre and immediately revalidate the plan" />
+                                            <Button Content="Use Metaroq suggestion"
+                                                    Command="{Binding DataContext.ResetSelectedGenreOverrideCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    Padding="8,5"
+                                                    ToolTip="Remove your saved genre correction and restore automatic classification" />
+                                        </UniformGrid>
+                                        <TextBlock Text="{Binding DataContext.AudiobookReviewCorrectionStatus, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                   Foreground="{StaticResource MetaroqAqua}" FontSize="9" Margin="0,5,0,0" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
                                 <TextBlock Text="Suggested destination" Foreground="#CBD5E1" FontWeight="SemiBold" Margin="0,8,0,2" />
                                 <TextBlock Text="{Binding OrganisationProposal.DestinationDisplay}" Foreground="{StaticResource MetaroqAccent}" FontFamily="Consolas" FontSize="10" TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding OrganisationProposal.FutureOptionLabel}" Foreground="#94A3B8" FontSize="10" Margin="0,5,0,0" TextWrapping="Wrap" />
@@ -392,7 +579,7 @@
                                     <TextBlock Text="{Binding StringFormat=⚠ {0}}" Foreground="#F59E0B" TextWrapping="Wrap" Margin="0,0,0,3" />
                                 </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
                                 <TextBlock Text="Batch dry run" Foreground="White" FontWeight="SemiBold" Margin="0,13,0,5" />
-                                <TextBlock Text="{Binding BatchPlan.ValidationLabel}" Foreground="{StaticResource MetaroqSand}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding BatchApprovalValidationLabel}" Foreground="{StaticResource MetaroqSand}" FontWeight="SemiBold" TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding BatchPlan.DecisionLabel}" Foreground="#94A3B8" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
                                 <UniformGrid Columns="3" Margin="0,8,0,0">
                                     <Button Content="Approve selected" Style="{StaticResource MetaroqPrimaryButtonStyle}"
@@ -413,14 +600,16 @@
                                 <ItemsControl ItemsSource="{Binding BatchPlan.Warnings}" Margin="0,5,0,0"><ItemsControl.ItemTemplate><DataTemplate>
                                     <TextBlock Text="{Binding StringFormat=⚠ {0}}" Foreground="#F59E0B" TextWrapping="Wrap" Margin="0,0,0,3" />
                                 </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
-                                <ItemsControl ItemsSource="{Binding BatchPlan.Operations}" Margin="0,7,0,0"><ItemsControl.ItemTemplate><DataTemplate>
-                                    <Border Background="{StaticResource MetaroqSurfaceRaised}" CornerRadius="4" Padding="7" Margin="0,0,0,5">
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding KindLabel}" Foreground="{StaticResource MetaroqAqua}" FontSize="10" FontWeight="SemiBold" />
-                                            <TextBlock Text="{Binding Display}" Foreground="#CBD5E1" FontFamily="Consolas" FontSize="9" Margin="0,2,0,0" TextWrapping="Wrap" />
-                                        </StackPanel>
-                                    </Border>
-                                </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                                <Expander Header="{Binding SourceFilesDisclosureLabel}" Foreground="White" Margin="0,9,0,0">
+                                    <ItemsControl ItemsSource="{Binding BatchPlan.Operations}" Margin="0,7,0,0"><ItemsControl.ItemTemplate><DataTemplate>
+                                        <Border Background="{StaticResource MetaroqSurfaceRaised}" CornerRadius="4" Padding="7" Margin="0,0,0,5">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding KindLabel}" Foreground="{StaticResource MetaroqAqua}" FontSize="10" FontWeight="SemiBold" />
+                                                <TextBlock Text="{Binding Display}" Foreground="#CBD5E1" FontFamily="Consolas" FontSize="9" Margin="0,2,0,0" TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                                </Expander>
                                 <TextBlock Text="Confidence explanation" Foreground="White" FontWeight="SemiBold" Margin="0,13,0,6" />
                                 <ItemsControl ItemsSource="{Binding ConfidenceReasons}"><ItemsControl.ItemTemplate><DataTemplate>
                                     <TextBlock Text="{Binding StringFormat=• {0}}" Foreground="#CBD5E1" TextWrapping="Wrap" Margin="0,0,0,4" />
@@ -429,8 +618,8 @@
                                 <ItemsControl ItemsSource="{Binding Warnings}"><ItemsControl.ItemTemplate><DataTemplate>
                                     <TextBlock Text="{Binding StringFormat=⚠ {0}}" Foreground="#F59E0B" TextWrapping="Wrap" Margin="0,0,0,4" />
                                 </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
-                                <TextBlock Text="Ordered files" Foreground="White" FontWeight="SemiBold" Margin="0,12,0,6" />
-                                <ItemsControl ItemsSource="{Binding Parts}"><ItemsControl.ItemTemplate><DataTemplate>
+                                <Expander Header="All technical source metadata" Foreground="White" Margin="0,12,0,0">
+                                <ItemsControl ItemsSource="{Binding Parts}" Margin="0,6,0,0"><ItemsControl.ItemTemplate><DataTemplate>
                                     <Border Background="{StaticResource MetaroqSurfaceRaised}" CornerRadius="4" Padding="8" Margin="0,0,0,7">
                                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="26" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                             <TextBlock Text="{Binding Sequence}" Foreground="{StaticResource MetaroqAqua}" FontWeight="SemiBold" />
@@ -465,6 +654,7 @@
                                         </Grid>
                                     </Border>
                                 </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                                </Expander>
                             </StackPanel>
                         </ScrollViewer>
                     </Border>

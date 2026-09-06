@@ -44,6 +44,126 @@ public sealed class AudiobookAnalysisServiceTests
     }
 
     [Fact]
+    public void Analyse_UsesEmbeddedTrackNumbersForMultipartOrdering()
+    {
+        var sourceId = Guid.NewGuid();
+        var trackTwo = CreateItem(sourceId, "Author/Book/a.mp3");
+        var trackOne = CreateItem(sourceId, "Author/Book/z.mp3");
+        var metadataService = new StubLocalMediaMetadataService(path => CreateMetadata(
+            path,
+            album: new MetadataValue("Book", MetadataValueSource.EmbeddedTag),
+            trackNumber: path == trackOne.FullPath ? 1u : 2u));
+        var service = new AudiobookAnalysisService(metadataService);
+
+        var group = Assert.Single(service.Analyse([trackTwo, trackOne]));
+
+        Assert.Equal([trackOne.Id, trackTwo.Id], group.Parts.Select(part => part.MediaItem.Id));
+        Assert.All(group.Parts, part => Assert.True(part.SequenceWasInferred));
+        Assert.DoesNotContain(group.Warnings, warning => warning.Contains("part numbers", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Analyse_UsesUnanimousEmbeddedAlbumAsMultipartBookTitle()
+    {
+        var sourceId = Guid.NewGuid();
+        var opening = CreateItem(sourceId, "Author/Book/opening.mp3");
+        var conclusion = CreateItem(sourceId, "Author/Book/conclusion.mp3");
+        var metadataService = new StubLocalMediaMetadataService(path => CreateMetadata(
+            path,
+            new MetadataValue(
+                path == opening.FullPath ? "Opening" : "Conclusion",
+                MetadataValueSource.EmbeddedTag),
+            new MetadataValue("Author", MetadataValueSource.EmbeddedTag),
+            new MetadataValue("Book", MetadataValueSource.EmbeddedTag),
+            path == opening.FullPath ? 1u : 2u));
+        var service = new AudiobookAnalysisService(metadataService);
+
+        var group = Assert.Single(service.Analyse([conclusion, opening]));
+
+        Assert.Equal("Book", group.Title);
+        Assert.Equal(MetadataValueSource.EmbeddedTag, group.TitleSource);
+        Assert.DoesNotContain(group.Warnings, warning => warning.Contains("Title metadata differs", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("001 - Book.mp3", "002 - Book.mp3")]
+    [InlineData("Chapter 01.mp3", "Chapter 02.mp3")]
+    [InlineData("(Author) Book - 01.mp3", "(Author) Book - 02.mp3")]
+    public void Analyse_RecognizesCommonNumberedMultipartFilenames(string firstName, string secondName)
+    {
+        var sourceId = Guid.NewGuid();
+        var first = CreateItem(sourceId, $"Author/Book/{firstName}");
+        var second = CreateItem(sourceId, $"Author/Book/{secondName}");
+        var service = CreateService();
+
+        var group = Assert.Single(service.Analyse([second, first]));
+
+        Assert.Equal([first.Id, second.Id], group.Parts.Select(part => part.MediaItem.Id));
+        Assert.All(group.Parts, part => Assert.True(part.SequenceWasInferred));
+        Assert.Empty(group.Warnings);
+    }
+
+    [Fact]
+    public void Analyse_PrefersCompleteFilenameSequenceOverDiscLocalTrackNumbers()
+    {
+        var sourceId = Guid.NewGuid();
+        var items = Enumerable.Range(1, 4)
+            .Select(index => CreateItem(
+                sourceId,
+                $"Roald Dahl/Roald Dahl - The BFG/(Roald Dahl) The BFG - {index:00}.mp3"))
+            .ToList();
+        var metadataService = new StubLocalMediaMetadataService(path =>
+        {
+            var fileIndex = items.FindIndex(item => item.FullPath == path) + 1;
+            return CreateMetadata(
+                path,
+                new MetadataValue($"Chapter {fileIndex}", MetadataValueSource.EmbeddedTag),
+                new MetadataValue("Roald Dahl", MetadataValueSource.EmbeddedTag),
+                new MetadataValue("The BFG", MetadataValueSource.EmbeddedTag),
+                (uint)(((fileIndex - 1) % 2) + 1));
+        });
+
+        var group = Assert.Single(new AudiobookAnalysisService(metadataService).Analyse(items.AsEnumerable().Reverse()));
+
+        Assert.Equal([1, 2, 3, 4], group.Parts.Select(part => part.Sequence));
+        Assert.DoesNotContain(group.Warnings, warning =>
+            warning.Contains("Duplicate part number", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Analyse_NamesFilesWhenARealDuplicatePartNumberRemains()
+    {
+        var sourceId = Guid.NewGuid();
+        var first = CreateItem(sourceId, "Author/Book/opening.mp3");
+        var second = CreateItem(sourceId, "Author/Book/conclusion.mp3");
+        var metadataService = new StubLocalMediaMetadataService(path => CreateMetadata(
+            path,
+            album: new MetadataValue("Book", MetadataValueSource.EmbeddedTag),
+            trackNumber: 1));
+
+        var group = Assert.Single(new AudiobookAnalysisService(metadataService).Analyse([first, second]));
+
+        var warning = Assert.Single(group.Warnings, warning =>
+            warning.Contains("Duplicate part number", StringComparison.Ordinal));
+        Assert.Contains(first.FileName, warning, StringComparison.Ordinal);
+        Assert.Contains(second.FileName, warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Analyse_TreatsLeadingPublicationYearAsContextAndUsesAuthorFolder()
+    {
+        var sourceId = Guid.NewGuid();
+        var item = CreateItem(
+            sourceId,
+            "Stephen King/Stephen King - Rage/1977 - Rage.mp3");
+
+        var group = Assert.Single(CreateService().Analyse([item]));
+
+        Assert.Equal("Stephen King", group.Author);
+        Assert.Equal("Rage", group.Title);
+    }
+
+    [Fact]
     public void Analyse_UsesFolderStructureWhenFilenameHasNoAuthorTitleSeparator()
     {
         var sourceId = Guid.NewGuid();
@@ -162,7 +282,7 @@ public sealed class AudiobookAnalysisServiceTests
     }
 
     [Fact]
-    public void Analyse_WarnsWhenEmbeddedTitlesConflictAcrossMultipartFiles()
+    public void Analyse_TreatsDifferingEmbeddedTitlesAsChapterNamesWhenFilenameSequenceIsComplete()
     {
         var sourceId = Guid.NewGuid();
         var partOne = CreateItem(sourceId, "Author/Book/Author - Book Part 1.mp3");
@@ -177,8 +297,8 @@ public sealed class AudiobookAnalysisServiceTests
         var group = Assert.Single(new AudiobookAnalysisService(metadataService).Analyse([partOne, partTwo]));
 
         Assert.Equal("Book", group.Title);
-        Assert.Contains("Title metadata differs across files; the inferred candidate value is shown.", group.Warnings);
-        Assert.True(group.NeedsReview);
+        Assert.DoesNotContain("Title metadata differs across files; the inferred candidate value is shown.", group.Warnings);
+        Assert.False(group.NeedsReview);
     }
 
     [Fact]
@@ -247,6 +367,38 @@ public sealed class AudiobookAnalysisServiceTests
             .Last(value => value.Stage == AudiobookAnalysisStage.ReadingMetadata);
         Assert.Equal(2, finalProgress.ProcessedCount);
         Assert.Equal(1, finalProgress.WarningCount);
+    }
+
+    [Fact]
+    public async Task AnalyseAsync_SeparatesDistinctM4bSeriesBooksBeforeOnlineLookup()
+    {
+        var sourceId = Guid.NewGuid();
+        var files = new[]
+        {
+            CreateItem(sourceId, "Zecharia Sitchin/The 12th Planet Earth Chronicles Series, Book 1.m4b"),
+            CreateItem(sourceId, "Zecharia Sitchin/The Stairway to Heaven Earth Chronicles Series, Book 2.m4b"),
+            CreateItem(sourceId, "Zecharia Sitchin/The Cosmic Code Earth Chronicles Series, Book 6.m4b")
+        };
+        var metadataService = new StubLocalMediaMetadataService(path =>
+        {
+            var title = Path.GetFileNameWithoutExtension(path);
+            return CreateMetadata(
+                path,
+                new MetadataValue(title, MetadataValueSource.EmbeddedTag),
+                new MetadataValue("Zecharia Sitchin", MetadataValueSource.EmbeddedTag)) with
+            {
+                Duration = TimeSpan.FromHours(8)
+            };
+        });
+        var service = new AudiobookAnalysisService(metadataService);
+
+        var result = await service.AnalyseAsync(files);
+
+        Assert.Equal(3, result.Count);
+        Assert.All(result, candidate => Assert.Single(candidate.Parts));
+        Assert.Contains(result, candidate => candidate.Title.Contains("12th Planet", StringComparison.Ordinal));
+        Assert.Contains(result, candidate => candidate.Title.Contains("Cosmic Code", StringComparison.Ordinal));
+        Assert.All(result, candidate => Assert.Equal("Zecharia Sitchin", candidate.Author));
     }
 
     [Fact]
@@ -376,15 +528,17 @@ public sealed class AudiobookAnalysisServiceTests
         string path,
         MetadataValue? title = null,
         MetadataValue? author = null,
+        MetadataValue? album = null,
+        uint? trackNumber = null,
         IReadOnlyList<string>? warnings = null) =>
         new(
             path,
             title ?? new MetadataValue(null, MetadataValueSource.None),
             author ?? new MetadataValue(null, MetadataValueSource.None),
-            new MetadataValue(null, MetadataValueSource.None),
+            album ?? new MetadataValue(null, MetadataValueSource.None),
             new MetadataValue(null, MetadataValueSource.None),
             null,
-            null,
+            trackNumber,
             null,
             null,
             null,
@@ -494,6 +648,11 @@ public sealed class AudiobookAnalysisServiceTests
         public Task SaveOnlineMetadataCacheAsync(
             Guid librarySourceId,
             IReadOnlyCollection<OnlineMetadataCacheEntry> entries,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task PruneOnlineMetadataCacheAsync(
+            Guid librarySourceId,
+            IReadOnlyCollection<string> currentCandidateKeys,
             CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

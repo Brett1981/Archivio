@@ -48,17 +48,17 @@ internal sealed class AudiobookOrganisationStore(
     public async Task SaveAsync(
         Guid librarySourceId,
         IReadOnlyCollection<AudiobookOrganisationCacheEntry> entries,
+        IReadOnlyCollection<string> currentCandidateKeys,
         CancellationToken cancellationToken = default)
     {
-        if (entries.Count == 0)
-        {
-            return;
-        }
-
         await using var context = await dbContextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         var existing = await context.AudiobookOrganisationProposals
             .Where(entity => entity.LibrarySourceId == librarySourceId)
             .ToDictionaryAsync(entity => entity.CandidateKey, cancellationToken);
+        var currentKeys = currentCandidateKeys.ToHashSet(StringComparer.Ordinal);
+        context.AudiobookOrganisationProposals.RemoveRange(
+            existing.Values.Where(entity => !currentKeys.Contains(entity.CandidateKey)));
 
         foreach (var entry in entries)
         {
@@ -75,5 +75,6 @@ internal sealed class AudiobookOrganisationStore(
         }
 
         await context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 }

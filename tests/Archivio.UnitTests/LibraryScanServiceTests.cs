@@ -95,6 +95,39 @@ public sealed class LibraryScanServiceTests
         Assert.Equal(issue, result.Issues[0]);
     }
 
+    [Fact]
+    public async Task ScanAsync_DoesNotMarkItemsMissingWhenDiscoveryIsIncomplete()
+    {
+        var source = CreateSource();
+        var now = DateTime.UtcNow;
+        var inaccessiblePath = Path.Combine(source.Path, "temporarily-unavailable", "book.m4b");
+        var existing = new MediaItem(
+            source.Id,
+            inaccessiblePath,
+            Path.GetRelativePath(source.Path, inaccessiblePath),
+            100,
+            now.AddDays(-2),
+            now.AddDays(-1),
+            now.AddHours(-1));
+        var repository = new FakeMediaItemRepository([existing]);
+        var issue = new FileDiscoveryIssue(
+            Path.GetDirectoryName(inaccessiblePath)!,
+            "The network path is temporarily unavailable.");
+        var discovery = new FakeFileDiscoveryService(new FileDiscoveryResult(
+            source.Path,
+            [],
+            [issue],
+            now.AddSeconds(-1),
+            now));
+
+        var result = await CreateService(source, repository, discovery).ScanAsync(source.Id);
+
+        Assert.Equal(0, result.MissingCount);
+        Assert.False(existing.IsMissing);
+        Assert.Single(result.Issues);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+    }
+
     [Theory]
     [InlineData(LibrarySourceType.Movies, ".mkv", ".mp3")]
     [InlineData(LibrarySourceType.Music, ".flac", ".pdf")]

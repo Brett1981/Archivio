@@ -9,4 +9,9 @@
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <Deterministic>true</Deterministic>
   </PropertyGroup>
+
+  <!-- Keep generated build artifacts off cloud-synchronised source folders on Windows. -->
+  <PropertyGroup Condition="'$(OS)' == 'Windows_NT' and '$(LOCALAPPDATA)' != ''">
+    <ArtifactsPath>$(LOCALAPPDATA)\Metaroq\Build\artifacts</ArtifactsPath>
+  </PropertyGroup>
 </Project>

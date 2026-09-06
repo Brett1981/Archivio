@@ -81,6 +81,39 @@ public sealed class MediaItemRepositoryTests
     }
 
     [Fact]
+    public async Task GetByLibrarySource_ReloadsMediaChangedByBackgroundScanContext()
+    {
+        await using var fixture = await RepositoryFixture.CreateAsync();
+        var source = await fixture.AddSourceAsync("Audiobooks");
+        var now = DateTime.UtcNow;
+        var original = CreateItem(source.Id, source.Path, "Original.m4b", 50, now);
+        await fixture.Repository.AddRangeAsync([original]);
+        await fixture.Repository.SaveChangesAsync();
+
+        var initial = await fixture.Repository.GetByLibrarySourceIdAsync(source.Id);
+        Assert.False(Assert.Single(initial).IsMissing);
+
+        await using (var backgroundContext = fixture.CreateAdditionalContext())
+        {
+            var backgroundOriginal = await backgroundContext.MediaItems.SingleAsync(item => item.Id == original.Id);
+            backgroundOriginal.MarkMissing(now.AddMinutes(1));
+            backgroundContext.MediaItems.Add(CreateItem(
+                source.Id,
+                source.Path,
+                Path.Combine("Organised", "Original.m4b"),
+                50,
+                now.AddMinutes(1)));
+            await backgroundContext.SaveChangesAsync();
+        }
+
+        var reloaded = await fixture.Repository.GetByLibrarySourceIdAsync(source.Id);
+
+        Assert.Equal(2, reloaded.Count);
+        Assert.True(reloaded.Single(item => item.Id == original.Id).IsMissing);
+        Assert.False(reloaded.Single(item => item.Id != original.Id).IsMissing);
+    }
+
+    [Fact]
     public async Task SaveChanges_RejectsDuplicatePathWithinSameLibrarySource()
     {
         await using var fixture = await RepositoryFixture.CreateAsync();
@@ -147,6 +180,12 @@ public sealed class MediaItemRepositoryTests
             Context.LibrarySources.Add(source);
             await Context.SaveChangesAsync();
             return source;
+        }
+
+        public ArchivioDbContext CreateAdditionalContext()
+        {
+            var options = new DbContextOptionsBuilder<ArchivioDbContext>().UseSqlite(Connection).Options;
+            return new ArchivioDbContext(options);
         }
 
         public async ValueTask DisposeAsync()

@@ -138,6 +138,36 @@ public sealed class AudiobookBatchPlanningServiceTests
     }
 
     [Fact]
+    public async Task PrepareBatch_IgnoresMissingHistoricalItemAtDestination()
+    {
+        var fixture = CreateCandidate("plan-1", "Author", "Book", ready: true);
+        var now = DateTime.UtcNow;
+        var targetRelativePath = Path.Combine("Author", "Book", "Author - Book.mp3");
+        var historicalItem = new MediaItem(
+            fixture.SourceId,
+            Path.Combine(fixture.Root, targetRelativePath),
+            targetRelativePath,
+            200,
+            now,
+            now,
+            now);
+        historicalItem.MarkMissing(now.AddMinutes(1));
+        var service = new AudiobookBatchPlanningService(new StubDecisionStore());
+
+        var result = await service.PrepareBatchAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [fixture.Candidate],
+            [fixture.Item, historicalItem]);
+
+        var plan = Assert.IsType<AudiobookBatchPlan>(Assert.Single(result).BatchPlan);
+        Assert.Equal(AudiobookBatchValidationStatus.Ready, plan.ValidationStatus);
+        Assert.DoesNotContain(
+            plan.Warnings,
+            warning => warning.Contains("already occupied", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task PrepareBatch_AssignsStableSequenceNamesToGroupedFiles()
     {
         var first = CreateCandidate("plan-1", "Author", "Book", ready: true, sourceFile: "Part 01.mp3");
@@ -184,6 +214,266 @@ public sealed class AudiobookBatchPlanningServiceTests
                 StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task PrepareBatch_UsesDistinctEmbeddedTrackNumbersBeforeAlphabeticalPaths()
+    {
+        var first = CreateCandidate(
+            "plan-1",
+            "Author",
+            "Book",
+            ready: true,
+            sourceFile: "Zebra.mp3",
+            trackNumber: 1);
+        var second = CreateCandidate(
+            "plan-1",
+            "Author",
+            "Book",
+            ready: true,
+            sourceFile: "Alpha.mp3",
+            sourceId: first.SourceId,
+            root: first.Root,
+            trackNumber: 2);
+        var primaryProposal = first.Candidate.OrganisationProposal! with
+        {
+            RelatedCandidateCount = 2,
+            SourceFileCount = 2,
+            SuggestedFileNamePattern = "001 - Book{original extension}"
+        };
+        var candidates = new[]
+        {
+            first.Candidate with { OrganisationProposal = primaryProposal },
+            second.Candidate with
+            {
+                OrganisationProposal = primaryProposal with { IsPrimaryCandidate = false }
+            }
+        };
+        var service = new AudiobookBatchPlanningService(new StubDecisionStore());
+
+        var result = await service.PrepareBatchAsync(
+            first.SourceId,
+            first.Root,
+            candidates,
+            [first.Item, second.Item]);
+
+        var plan = Assert.IsType<AudiobookBatchPlan>(result[0].BatchPlan);
+        Assert.Collection(
+            plan.Operations,
+            operation =>
+            {
+                Assert.EndsWith("Zebra.mp3", operation.SourceRelativePath, StringComparison.Ordinal);
+                Assert.EndsWith("001 - Book.mp3", operation.DestinationRelativePath, StringComparison.Ordinal);
+            },
+            operation =>
+            {
+                Assert.EndsWith("Alpha.mp3", operation.SourceRelativePath, StringComparison.Ordinal);
+                Assert.EndsWith("002 - Book.mp3", operation.DestinationRelativePath, StringComparison.Ordinal);
+            });
+    }
+
+    [Fact]
+    public async Task PrepareBatch_AcceptsCompleteTrailingFilenameSequenceForConsolidatedTracks()
+    {
+        var first = CreateCandidate(
+            "plan-1",
+            "Roald Dahl",
+            "The BFG",
+            ready: true,
+            sourceFile: "(Roald Dahl) The BFG - 01.mp3");
+        var second = CreateCandidate(
+            "plan-1",
+            "Roald Dahl",
+            "The BFG",
+            ready: true,
+            sourceFile: "(Roald Dahl) The BFG - 02.mp3",
+            sourceId: first.SourceId,
+            root: first.Root);
+        var primaryProposal = first.Candidate.OrganisationProposal! with
+        {
+            RecommendedAction = AudiobookOrganisationAction.ConsolidateCandidates,
+            RelatedCandidateCount = 2,
+            SourceFileCount = 2,
+            SuggestedFileNamePattern = "001 - The BFG{original extension}"
+        };
+        var candidates = new[]
+        {
+            first.Candidate with
+            {
+                Parts = [first.Candidate.Parts[0] with { SequenceWasInferred = false }],
+                OrganisationProposal = primaryProposal
+            },
+            second.Candidate with
+            {
+                Parts = [second.Candidate.Parts[0] with { SequenceWasInferred = false }],
+                OrganisationProposal = primaryProposal with { IsPrimaryCandidate = false }
+            }
+        };
+        var service = new AudiobookBatchPlanningService(new StubDecisionStore());
+
+        var result = await service.PrepareBatchAsync(
+            first.SourceId,
+            first.Root,
+            candidates,
+            [first.Item, second.Item]);
+
+        var plan = Assert.IsType<AudiobookBatchPlan>(result[0].BatchPlan);
+        Assert.Equal(AudiobookBatchValidationStatus.Ready, plan.ValidationStatus);
+        Assert.Empty(plan.Warnings);
+        Assert.Collection(
+            plan.Operations,
+            operation => Assert.EndsWith("001 - The BFG.mp3", operation.DestinationRelativePath),
+            operation => Assert.EndsWith("002 - The BFG.mp3", operation.DestinationRelativePath));
+    }
+
+    [Fact]
+    public async Task PrepareBatch_BlocksConsolidationWithoutACompleteTrackSequence()
+    {
+        var first = CreateCandidate(
+            "plan-1",
+            "Author",
+            "Book",
+            ready: true,
+            sourceFile: "First.mp3",
+            trackNumber: 10);
+        var second = CreateCandidate(
+            "plan-1",
+            "Author",
+            "Book",
+            ready: true,
+            sourceFile: "Duplicate.mp3",
+            sourceId: first.SourceId,
+            root: first.Root,
+            trackNumber: 10);
+        var primaryProposal = first.Candidate.OrganisationProposal! with
+        {
+            RecommendedAction = AudiobookOrganisationAction.ConsolidateCandidates,
+            RelatedCandidateCount = 2,
+            SourceFileCount = 2,
+            SuggestedFileNamePattern = "001 - Book{original extension}"
+        };
+        var candidates = new[]
+        {
+            first.Candidate with { OrganisationProposal = primaryProposal },
+            second.Candidate with
+            {
+                OrganisationProposal = primaryProposal with { IsPrimaryCandidate = false }
+            }
+        };
+        var service = new AudiobookBatchPlanningService(new StubDecisionStore());
+
+        var result = await service.PrepareBatchAsync(
+            first.SourceId,
+            first.Root,
+            candidates,
+            [first.Item, second.Item]);
+
+        var plan = Assert.IsType<AudiobookBatchPlan>(result[0].BatchPlan);
+        Assert.Equal(AudiobookBatchValidationStatus.Conflict, plan.ValidationStatus);
+        Assert.Contains(
+            plan.Warnings,
+            warning => warning.Contains("complete, unique track sequence", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task PrepareBatch_CreatesMetadataOnlyOperationForCanonicalFileWithStaleTags()
+    {
+        var fixture = CreateCanonicalCandidate(tagsMatch: false);
+        var service = new AudiobookBatchPlanningService(new StubDecisionStore());
+
+        var result = await service.PrepareBatchAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [fixture.Candidate],
+            [fixture.Item]);
+
+        var plan = Assert.IsType<AudiobookBatchPlan>(Assert.Single(result).BatchPlan);
+        Assert.Equal(AudiobookBatchValidationStatus.Ready, plan.ValidationStatus);
+        Assert.Equal(AudiobookFileOperationKind.UpdateMetadata, Assert.Single(plan.Operations).Kind);
+    }
+
+    [Fact]
+    public async Task PrepareBatch_ReportsNoChangeForCanonicalFileWithMatchingTags()
+    {
+        var fixture = CreateCanonicalCandidate(tagsMatch: true);
+        var service = new AudiobookBatchPlanningService(new StubDecisionStore());
+
+        var result = await service.PrepareBatchAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [fixture.Candidate],
+            [fixture.Item]);
+
+        var plan = Assert.IsType<AudiobookBatchPlan>(Assert.Single(result).BatchPlan);
+        Assert.Equal(AudiobookBatchValidationStatus.NoChange, plan.ValidationStatus);
+        Assert.Equal(AudiobookFileOperationKind.NoChange, Assert.Single(plan.Operations).Kind);
+    }
+
+    private static CandidateFixture CreateCanonicalCandidate(bool tagsMatch)
+    {
+        var sourceId = Guid.NewGuid();
+        var root = Path.Combine(Path.GetTempPath(), "Archivio.Tests", Guid.NewGuid().ToString("N"));
+        var relativePath = Path.Combine("Fiction", "Author", "Book (2026)", "Author - Book.mp3");
+        var now = DateTime.UtcNow;
+        var item = new MediaItem(
+            sourceId,
+            Path.Combine(root, relativePath),
+            relativePath,
+            100,
+            now,
+            now,
+            now);
+        var metadata = new LocalMediaMetadata(
+            item.FullPath,
+            new MetadataValue(tagsMatch ? "Book" : "Wrong title", MetadataValueSource.EmbeddedTag),
+            new MetadataValue(tagsMatch ? "Author" : "Wrong author", MetadataValueSource.EmbeddedTag),
+            new MetadataValue(tagsMatch ? "Book" : "Wrong album", MetadataValueSource.EmbeddedTag),
+            new MetadataValue(tagsMatch ? "Fiction" : "Wrong genre", MetadataValueSource.EmbeddedTag),
+            tagsMatch ? 2026u : 1999u,
+            1,
+            null,
+            null,
+            null,
+            null,
+            null,
+            false,
+            [],
+            [],
+            1,
+            null);
+        var proposal = new AudiobookOrganisationProposal(
+            "canonical-plan",
+            "Author",
+            "Book",
+            2026,
+            "Fiction",
+            Path.Combine("Fiction", "Author", "Book (2026)"),
+            "Author - Book.mp3",
+            AudiobookOrganisationAction.Keep,
+            1,
+            1,
+            true,
+            false,
+            1m,
+            true,
+            false,
+            [],
+            [],
+            now);
+        var candidate = new AudiobookCandidateGroup(
+            "Author - Book",
+            "Author",
+            "Book",
+            MetadataValueSource.FolderStructure,
+            MetadataValueSource.FolderStructure,
+            false,
+            [new AudiobookCandidatePart(item, 1, false, metadata)],
+            1m,
+            [])
+        {
+            OrganisationProposal = proposal
+        };
+        return new CandidateFixture(sourceId, root, item, candidate);
+    }
+
     private static CandidateFixture CreateCandidate(
         string planKey,
         string author,
@@ -191,7 +481,8 @@ public sealed class AudiobookBatchPlanningServiceTests
         bool ready,
         string sourceFile = "Original.mp3",
         Guid? sourceId = null,
-        string? root = null)
+        string? root = null,
+        uint? trackNumber = null)
     {
         var librarySourceId = sourceId ?? Guid.NewGuid();
         var libraryRoot = root ?? Path.Combine(
@@ -215,7 +506,7 @@ public sealed class AudiobookBatchPlanningServiceTests
             new MetadataValue(null, MetadataValueSource.None),
             new MetadataValue(null, MetadataValueSource.None),
             null,
-            null,
+            trackNumber,
             null,
             null,
             null,

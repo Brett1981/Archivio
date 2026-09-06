@@ -34,6 +34,60 @@ public sealed record AudiobookCandidateGroup(
     public bool IsPrimaryOrganisationPlan => OrganisationProposal?.IsPrimaryCandidate == true;
     public bool IsReviewClearedOrganisationPlan => IsPrimaryOrganisationPlan && !NeedsReview;
     public bool HasBatchPlan => BatchPlan is not null;
+    public string ReviewAuthorDisplay => OrganisationProposal?.CanonicalAuthor ?? AuthorDisplay;
+    public string ReviewTitle => OrganisationProposal?.CanonicalTitle ?? Title;
+    public decimal ReviewConfidence => OrganisationProposal?.Confidence ?? Confidence;
+    public int ReviewSourceFileCount => OrganisationProposal?.SourceFileCount ?? Parts.Count;
+    public bool RequiresIndividualApproval =>
+        IsPrimaryOrganisationPlan &&
+        ReviewSourceFileCount > 1 &&
+        BatchPlan?.ValidationStatus == AudiobookBatchValidationStatus.Ready;
+    public bool IsIndividualApprovalPending =>
+        RequiresIndividualApproval &&
+        BatchPlan?.Decision != AudiobookBatchDecision.Approved;
+    public bool ReviewItemNeedsReview => IsIndividualApprovalPending ||
+        BatchPlan?.IsBlocked == true ||
+        (OrganisationProposal is not null
+            ? !OrganisationProposal.ReadyForAutomaticHandling
+            : NeedsReview);
+    public bool CanBulkApprove =>
+        IsPrimaryOrganisationPlan &&
+        ReviewSourceFileCount == 1 &&
+        ReviewConfidence == 1m &&
+        !ReviewItemNeedsReview &&
+        Warnings.Count == 0 &&
+        OrganisationProposal?.Warnings.Count == 0 &&
+        BatchPlan is
+        {
+            CanApprove: true,
+            Decision: not AudiobookBatchDecision.Approved,
+            Warnings.Count: 0
+        };
+    public string ReviewItemStatusLabel => ReviewItemNeedsReview ? "Needs review" : "High confidence";
+    public string ReviewItemSummary => OrganisationProposal is null
+        ? TypeLabel
+        : $"1 audiobook · {ReviewSourceFileCount:N0} source file{(ReviewSourceFileCount == 1 ? string.Empty : "s")}";
+    public string ReviewPlannedResult => OrganisationProposal is null
+        ? "Analyse this candidate to prepare an organisation plan"
+        : ReviewSourceFileCount > 1
+            ? $"One folder with {ReviewSourceFileCount:N0} ordered tracks"
+            : "One organised audiobook file";
+    public string ReviewHandlingLabel => ReviewSourceFileCount > 1
+        ? "Keep as ordered tracks"
+        : OrganisationProposal?.ActionLabel ?? "Keep current file";
+    public string ReviewHandlingDetail => ReviewSourceFileCount > 1
+        ? "Available now · preserves chapters"
+        : "Available now · non-destructive organisation";
+    public string SourceFilesDisclosureLabel =>
+        $"Show {ReviewSourceFileCount:N0} source file{(ReviewSourceFileCount == 1 ? string.Empty : "s")}";
+    public string BatchApprovalValidationLabel => RequiresIndividualApproval && BatchPlan?.CanApprove == true
+        ? BatchPlan.Decision == AudiobookBatchDecision.Approved
+            ? "Individually approved"
+            : "Ready for individual approval"
+        : BatchPlan?.ValidationLabel ?? "Batch validation unavailable";
+    public string BatchApprovalSummary => BatchPlan is null
+        ? "Batch validation unavailable"
+        : $"{BatchApprovalValidationLabel} · {BatchPlan.Operations.Count:N0} file operation{(BatchPlan.Operations.Count == 1 ? string.Empty : "s")}";
     public string OnlineSuggestionLabel => OnlineSuggestion is null
         ? "No online suggestion"
         : OnlineSuggestion.ProvenanceDisplay;

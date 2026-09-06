@@ -58,7 +58,7 @@ public sealed class OpenLibraryMetadataProvider : IBookMetadataProvider, IDispos
         var clauses = queries.Select(query =>
         {
             var title = EscapeQueryValue(query.Title);
-            return string.IsNullOrWhiteSpace(query.Author)
+            return query.SearchByTitleOnly || string.IsNullOrWhiteSpace(query.Author)
                 ? $"title:\"{title}\""
                 : $"(title:\"{title}\" AND author:\"{EscapeQueryValue(query.Author)}\")";
         }).Distinct(StringComparer.Ordinal);

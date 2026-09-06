@@ -75,10 +75,35 @@
         </Style>
 
         <Style TargetType="{x:Type ComboBox}">
-            <Setter Property="Background" Value="{StaticResource MetaroqSurface}" />
-            <Setter Property="BorderBrush" Value="{StaticResource MetaroqBorder}" />
-            <Setter Property="Foreground" Value="{StaticResource MetaroqText}" />
+            <!-- The native WPF drop-down popup uses a light system surface. Keep its
+                 text explicitly dark so it remains readable in every Windows theme. -->
+            <Setter Property="Background" Value="#F8FAFC" />
+            <Setter Property="BorderBrush" Value="#64748B" />
+            <Setter Property="Foreground" Value="#111827" />
             <Setter Property="Padding" Value="8,7" />
+            <Setter Property="ItemContainerStyle">
+                <Setter.Value>
+                    <Style TargetType="{x:Type ComboBoxItem}">
+                        <Setter Property="Background" Value="#F8FAFC" />
+                        <Setter Property="Foreground" Value="#111827" />
+                        <Setter Property="Padding" Value="9,6" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Style.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter Property="Background" Value="{StaticResource MetaroqAccent}" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="#DCE7FF" />
+                                <Setter Property="Foreground" Value="#111827" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="#64748B" />
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style TargetType="{x:Type CheckBox}">

@@ -26,7 +26,8 @@ public sealed record OnlineMetadataSuggestion(
 public sealed record OnlineMetadataQuery(
     string CandidateKey,
     string Title,
-    string? Author);
+    string? Author,
+    bool SearchByTitleOnly = false);
 
 public sealed record OnlineBookSearchResult(
     string ProviderName,
@@ -48,7 +49,7 @@ public static partial class OnlineMetadataIdentity
 {
     public static string CreateInputSignature(string title, string? author)
     {
-        const string lookupAlgorithmVersion = "online-lookup-v2";
+        const string lookupAlgorithmVersion = "online-lookup-v4";
         var value = $"{lookupAlgorithmVersion}|{Normalize(title)}|{Normalize(author ?? string.Empty)}";
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
     }

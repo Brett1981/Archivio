@@ -27,7 +27,14 @@ public sealed record AudiobookOrganisationProposal(
     bool FutureCombineCandidate,
     IReadOnlyList<string> Reasons,
     IReadOnlyList<string> Warnings,
-    DateTime GeneratedAtUtc)
+    DateTime GeneratedAtUtc,
+    bool UsesManualGenre = false,
+    bool UsesManualAuthor = false,
+    bool UsesManualTitle = false,
+    AudiobookCollectionHandling CollectionHandling = AudiobookCollectionHandling.Automatic,
+    string? SeriesName = null,
+    int? SeriesPosition = null,
+    string? CollectionPlanKey = null)
 {
     public string CanonicalDisplay => $"{CanonicalAuthor} — {CanonicalTitle}";
     public string YearDisplay => FirstPublishedYear is null
@@ -49,6 +56,16 @@ public sealed record AudiobookOrganisationProposal(
         ? $"{SourceFileCount:N0} source file{(SourceFileCount == 1 ? string.Empty : "s")}"
         : $"{RelatedCandidateCount:N0} related candidates · {SourceFileCount:N0} source files";
     public string ProposalSummary => $"{ActionLabel} · {GenreCategory}";
+    public string GenreSourceLabel => UsesManualGenre ? "Confirmed by you" : "Suggested by Metaroq";
+    public string IdentitySourceLabel => UsesManualAuthor || UsesManualTitle
+        ? "Author and title confirmed by you"
+        : "Author and title suggested by Metaroq";
+    public bool IsSeparateBookPlan => CollectionHandling == AudiobookCollectionHandling.SeparateBooks;
+    public string SeriesDisplay => string.IsNullOrWhiteSpace(SeriesName)
+        ? "No series assigned"
+        : SeriesPosition is null
+            ? SeriesName
+            : $"{SeriesName} · Book {SeriesPosition}";
     public string DestinationDisplay => $"{SuggestedRelativeFolder}  →  {SuggestedFileNamePattern}";
     public string FutureOptionLabel => FutureCombineCandidate
         ? "Future option: assess combining these files into one audiobook after format compatibility checks."

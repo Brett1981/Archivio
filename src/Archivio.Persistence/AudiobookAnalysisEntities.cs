@@ -67,3 +67,16 @@ internal sealed class AudiobookBatchDecisionEntity
     public int Decision { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
 }
+
+internal sealed class AudiobookReviewOverrideEntity
+{
+    public Guid LibrarySourceId { get; set; }
+    public string PlanKey { get; set; } = string.Empty;
+    public string GenreCategory { get; set; } = string.Empty;
+    public string? CanonicalAuthor { get; set; }
+    public string? CanonicalTitle { get; set; }
+    public int CollectionHandling { get; set; }
+    public string? SeriesName { get; set; }
+    public int? SeriesPosition { get; set; }
+    public DateTime UpdatedAtUtc { get; set; }
+}

@@ -79,6 +79,37 @@ public sealed class OnlineMetadataLookupServiceTests
     }
 
     [Fact]
+    public async Task EnrichCandidates_SearchesByTitleAndUsesInferredAuthorAsRankingHint()
+    {
+        var candidate = CreateCandidate("Rage", "Stephen King", 1m) with
+        {
+            OrganisationProposal = CreateProposal(
+                "rage",
+                "Stephen King",
+                "Rage",
+                isPrimary: true)
+        };
+        var provider = new StubBookMetadataProvider
+        {
+            Results =
+            [
+                CreateResult("/works/OL1W", "Rage", "Different Author"),
+                CreateResult("/works/OL2W", "Rage", "Stephen King")
+            ]
+        };
+        var service = new OnlineMetadataLookupService(provider, new StubAnalysisStore());
+
+        var result = await service.EnrichCandidatesAsync(
+            candidate.Parts[0].MediaItem.LibrarySourceId,
+            [candidate]);
+
+        var query = Assert.Single(Assert.Single(provider.QueryBatches));
+        Assert.True(query.SearchByTitleOnly);
+        Assert.Equal("Stephen King", query.Author);
+        Assert.Equal("Stephen King", Assert.Single(result).OnlineSuggestion?.AuthorDisplay);
+    }
+
+    [Fact]
     public async Task EnrichCandidates_ReusesCurrentCachedSuggestionWithoutCallingProvider()
     {
         var candidate = CreateCandidate("Dune", "Frank Herbert", 0.70m);
@@ -164,6 +195,85 @@ public sealed class OnlineMetadataLookupServiceTests
         Assert.Equal(2, store.SavedOnlineEntries.Count);
     }
 
+    [Fact]
+    public async Task EnrichCandidates_RemovesExplicitSeriesSuffixBeforeSearchingForEachBook()
+    {
+        var candidate = CreateCandidate(
+            "The Cosmic Code Earth Chronicles Series, Book 6",
+            "Zecharia Sitchin",
+            0.70m);
+        var provider = new StubBookMetadataProvider
+        {
+            Results = [CreateResult("/works/OL1W", "The Cosmic Code", "Zecharia Sitchin")]
+        };
+        var service = new OnlineMetadataLookupService(provider, new StubAnalysisStore());
+
+        var result = await service.EnrichCandidatesAsync(
+            candidate.Parts[0].MediaItem.LibrarySourceId,
+            [candidate]);
+
+        Assert.Equal("The Cosmic Code", Assert.Single(Assert.Single(provider.QueryBatches)).Title);
+        Assert.Equal("The Cosmic Code", Assert.Single(result).OnlineSuggestion?.Title);
+    }
+
+    [Fact]
+    public async Task EnrichCandidates_SearchesOneLogicalBookWhenGenreIsUnavailable()
+    {
+        var sourceId = Guid.NewGuid();
+        var first = CreateCandidate("Chapter One", "Roald Dahl", 1m, sourceId) with
+        {
+            OrganisationProposal = CreateProposal(
+                "the-bfg",
+                "Roald Dahl",
+                "The BFG",
+                isPrimary: true)
+        };
+        var second = CreateCandidate("Chapter Two", "Roald Dahl", 1m, sourceId) with
+        {
+            OrganisationProposal = CreateProposal(
+                "the-bfg",
+                "Roald Dahl",
+                "The BFG",
+                isPrimary: false)
+        };
+        var provider = new StubBookMetadataProvider
+        {
+            Results = [CreateResult("/works/OL1W", "The BFG", "Roald Dahl")]
+        };
+        var store = new StubAnalysisStore();
+        var service = new OnlineMetadataLookupService(provider, store);
+
+        var result = await service.EnrichCandidatesAsync(sourceId, [first, second]);
+
+        Assert.Equal(1, provider.CallCount);
+        Assert.Equal("The BFG", Assert.Single(Assert.Single(provider.QueryBatches)).Title);
+        Assert.All(result, candidate => Assert.Equal("The BFG", candidate.OnlineSuggestion?.Title));
+        Assert.Equal(2, store.SavedOnlineEntries.Count);
+    }
+
+    [Fact]
+    public async Task EnrichCandidates_DoesNotSearchCleanPlanWithReliableGenre()
+    {
+        var candidate = CreateCandidate("Dune", "Frank Herbert", 1m) with
+        {
+            OrganisationProposal = CreateProposal(
+                "dune",
+                "Frank Herbert",
+                "Dune",
+                isPrimary: true,
+                genre: "Science Fiction")
+        };
+        var provider = new StubBookMetadataProvider();
+        var service = new OnlineMetadataLookupService(provider, new StubAnalysisStore());
+
+        var result = await service.EnrichCandidatesAsync(
+            candidate.Parts[0].MediaItem.LibrarySourceId,
+            [candidate]);
+
+        Assert.Equal(0, provider.CallCount);
+        Assert.Null(Assert.Single(result).OnlineSuggestion);
+    }
+
     [Theory]
     [InlineData("A Window into Time 08--20", "Peter F. Hamilton", "A Window into Time")]
     [InlineData("One Door Away From Heaven (11of17)", "Dean Koontz", "One Door Away From Heaven")]
@@ -171,6 +281,10 @@ public sealed class OnlineMetadataLookupServiceTests
     [InlineData("Blue Gold (read by Michael Pritchard)", "Clive Cussler", "Blue Gold")]
     [InlineData("1989 - Hyperion (Foushee) 64k 17.03.25 {477mb}", "Dan Simmons", "Hyperion")]
     [InlineData("Dean Koontz - Darkfall (Unabridged)", "Dean Koontz", "Darkfall")]
+    [InlineData(
+        "Dean Koontz - Bliss To You - Trixie's Guide to a Happy Life - 01 of 01",
+        "Dean Koontz",
+        "Bliss To You - Trixie's Guide to a Happy Life")]
     public async Task EnrichCandidates_RemovesAudiobookFilenameNoiseBeforeSearching(
         string title,
         string author,
@@ -288,6 +402,32 @@ public sealed class OnlineMetadataLookupServiceTests
             null,
             $"https://openlibrary.org{key}");
 
+    private static AudiobookOrganisationProposal CreateProposal(
+        string planKey,
+        string author,
+        string title,
+        bool isPrimary,
+        string genre = "Uncategorised") =>
+        new(
+            planKey,
+            author,
+            title,
+            null,
+            genre,
+            Path.Combine(author, title),
+            $"001 - {title}{{original extension}}",
+            AudiobookOrganisationAction.OrganiseMultipart,
+            2,
+            2,
+            isPrimary,
+            false,
+            1m,
+            false,
+            true,
+            [],
+            [],
+            DateTime.UtcNow);
+
     private sealed class StubBookMetadataProvider : IBookMetadataProvider
     {
         public string Name => "Open Library";
@@ -324,6 +464,20 @@ public sealed class OnlineMetadataLookupServiceTests
             foreach (var entry in entries)
             {
                 OnlineCache[entry.CandidateKey] = entry;
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task PruneOnlineMetadataCacheAsync(
+            Guid librarySourceId,
+            IReadOnlyCollection<string> currentCandidateKeys,
+            CancellationToken cancellationToken = default)
+        {
+            var currentKeys = currentCandidateKeys.ToHashSet(StringComparer.Ordinal);
+            foreach (var staleKey in OnlineCache.Keys.Where(key => !currentKeys.Contains(key)).ToList())
+            {
+                OnlineCache.Remove(staleKey);
             }
 
             return Task.CompletedTask;

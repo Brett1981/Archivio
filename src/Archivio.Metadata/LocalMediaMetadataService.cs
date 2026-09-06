@@ -52,7 +52,9 @@ public sealed class LocalMediaMetadataService : ILocalMediaMetadataService
                 codec,
                 tag.Pictures.Length > 0,
                 parsed.SourceHints,
-                warnings);
+                warnings,
+                tag.TrackCount == 0 ? null : tag.TrackCount,
+                string.IsNullOrWhiteSpace(tag.Grouping) ? null : tag.Grouping.Trim());
         }
         catch (Exception exception) when (exception is CorruptFileException or UnsupportedFormatException or IOException or UnauthorizedAccessException)
         {
