@@ -18,6 +18,7 @@ Version 0.2 provides:
 - item-first review, manual corrections, collection splitting, and series handling
 - whole-library dry runs with conflict detection and approval controls
 - guarded move, rename, and embedded-metadata execution
+- Open Library cover artwork embedded into audio files with a non-overwriting Plex-compatible `cover.jpg` or `cover.png` alongside each audiobook
 - execution journalling, rollback, and interrupted-run recovery
 - automatic SQLite safety backups before migrations and media execution
 
@@ -29,7 +30,7 @@ Metaroq can turn saved audiobook organisation proposals into a whole-library dry
 
 Before building that queue, Metaroq forms logical audiobook plans from local metadata and folder evidence. Books whose embedded genre is missing or only describes the format are looked up online once per logical book rather than once per chapter or source file. A result is accepted only when the existing conservative title and author thresholds pass, and the suggestion is then shared by every source file in that audiobook plan.
 
-The review workspace separates plans that are already organised from those needing metadata review or conflict resolution. A reviewer can compare every original filename, library path, and embedded title, author, album, track, and duration beside the correction controls, and can open a selected source in the Windows default audio player. They can then confirm the complete author, audiobook title, and a supported genre. These durable corrections immediately regenerate and revalidate the plan without changing any media files. The automatic Metaroq identity or genre suggestion can be restored at any time.
+The review workspace separates plans that are already organised from those needing metadata review or conflict resolution. A reviewer can compare every original filename, library path, embedded title, author, album, track, duration, and available online cover beside the correction controls, and can open a selected source in the Windows default audio player. Clean single-file identities from authoritative embedded tags are accepted automatically; the author/title fields are corrections, not mandatory confirmations. Durable corrections immediately regenerate and revalidate the plan without changing any media files. The automatic Metaroq identity or genre suggestion can be restored at any time.
 
 Metaroq distinguishes multipart chapter sets from collections of complete books before online enrichment. Multiple long-form `.m4b` files with distinct embedded titles or explicit labels such as `Series, Book 6` are searched and planned as independent audiobooks. A reviewer can also explicitly split an ambiguous collection and assign an optional series name and book number. Series books are proposed beneath a shared series folder while retaining separate book folders and files.
 
@@ -37,7 +38,7 @@ Metaroq distinguishes multipart chapter sets from collections of complete books 
 
 Approved, conflict-free move and rename plans can now be executed after an explicit confirmation. Immediately before execution, Metaroq revalidates the library boundary, source existence, source size and modified time, unique targets, and destination availability. Existing destination files are never overwritten.
 
-Before execution, Metaroq creates a consistent SQLite backup. Every run and file operation is then written to an execution journal before media changes begin. The original embedded tags are journalled before Metaroq writes the approved title, author, album, genre, year, series, and track order. Progress is checkpointed after each operation. If an operation fails or the user cancels, completed moves and metadata changes are rolled back in reverse order where that can be done safely. Interrupted runs are detected when the source is reopened and must be recovered before another execution can start.
+Before execution, Metaroq creates a consistent SQLite backup. Every run and file operation is then written to an execution journal before media changes begin. The original embedded tags and artwork are journalled before Metaroq writes the approved title, author, album, genre, year, series, track order, and selected Open Library cover. After successful execution, a `cover.jpg` or `cover.png` is added to each audiobook folder for Plex and other local-media scanners; an existing cover is never overwritten. Progress is checkpointed after each operation. If an operation fails or the user cancels, completed moves and embedded metadata changes are rolled back in reverse order where that can be done safely. Interrupted runs are detected when the source is reopened and must be recovered before another execution can start.
 
 This milestone supports move, rename, and journalled metadata updates. Audio combining, deletion, and unattended execution remain disabled.
 
@@ -87,4 +88,4 @@ Internal assembly and namespace names remain `Archivio` while the product is reb
 
 ## Development status
 
-The authoritative development branch is `feature/guarded-batch-execution`. Changes should pass `build.ps1` before they are committed or pushed. The next product milestone is stronger content identification followed by separately reviewed support for combining compatible multipart audiobooks and carefully controlled unattended organisation.
+The authoritative branch is `main`; feature work is developed on short-lived branches and merged after `build.ps1` passes. The next product milestone is stronger content identification followed by separately reviewed support for combining compatible multipart audiobooks and carefully controlled unattended organisation.

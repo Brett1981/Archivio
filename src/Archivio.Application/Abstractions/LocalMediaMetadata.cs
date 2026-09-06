@@ -40,7 +40,8 @@ public sealed record LocalMediaMetadata(
     IReadOnlyList<string> SourceHints,
     IReadOnlyList<string> Warnings,
     uint? TrackCount = null,
-    string? SeriesName = null)
+    string? SeriesName = null,
+    bool HasSidecarArtwork = false)
 {
     public bool WasReadSuccessfully => Warnings.Count == 0 ||
         Title.HasValue || Author.HasValue || Duration is not null;
@@ -72,7 +73,13 @@ public sealed record LocalMediaMetadata(
         }
     }
 
-    public string ArtworkDisplay => HasEmbeddedArtwork ? "Embedded artwork" : "No embedded artwork";
+    public string ArtworkDisplay => (HasEmbeddedArtwork, HasSidecarArtwork) switch
+    {
+        (true, true) => "Embedded artwork and local cover file",
+        (true, false) => "Embedded artwork",
+        (false, true) => "Local cover file",
+        _ => "No local artwork"
+    };
     public string SourceHintsDisplay => SourceHints.Count == 0 ? "No source hints" : string.Join(", ", SourceHints);
 
     public string ReleaseDetailsDisplay

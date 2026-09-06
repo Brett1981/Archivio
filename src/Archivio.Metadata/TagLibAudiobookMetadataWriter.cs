@@ -18,7 +18,10 @@ public sealed class TagLibAudiobookMetadataWriter : IAudiobookMetadataWriter
             tag.Year,
             tag.Track,
             tag.TrackCount,
-            tag.Grouping);
+            tag.Grouping,
+            tag.Pictures.Select(picture => new AudiobookArtwork(
+                picture.MimeType ?? "application/octet-stream",
+                picture.Data.Data)).ToList());
     }
 
     public void Write(string path, AudiobookTagUpdate update)
@@ -39,6 +42,10 @@ public sealed class TagLibAudiobookMetadataWriter : IAudiobookMetadataWriter
         tag.Grouping = string.IsNullOrWhiteSpace(update.SeriesName)
             ? null
             : update.SeriesName;
+        if (update.CoverArtwork is not null)
+        {
+            tag.Pictures = [CreatePicture(update.CoverArtwork)];
+        }
 
         file.Save();
     }
@@ -58,6 +65,15 @@ public sealed class TagLibAudiobookMetadataWriter : IAudiobookMetadataWriter
         tag.Track = state.Track;
         tag.TrackCount = state.TrackCount;
         tag.Grouping = state.Grouping;
+        tag.Pictures = state.Pictures?.Select(CreatePicture).ToArray() ?? [];
         file.Save();
     }
+
+    private static TagLib.IPicture CreatePicture(AudiobookArtwork artwork) => new TagLib.Picture
+    {
+        Type = TagLib.PictureType.FrontCover,
+        MimeType = artwork.MimeType,
+        Description = "Audiobook cover",
+        Data = new TagLib.ByteVector(artwork.Data)
+    };
 }

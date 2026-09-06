@@ -169,6 +169,55 @@ public sealed class AudiobookBatchExecutionServiceTests
     }
 
     [Fact]
+    public async Task ExecuteApproved_EmbedsArtworkAndCreatesPlexCoverWithoutOverwriting()
+    {
+        var fixture = CreateFixture(("Incoming\\Book.mp3", "Author\\Book\\Author - Book.mp3"));
+        var artwork = new AudiobookArtwork("image/jpeg", [0xFF, 0xD8, 0xFF, 0xD9]);
+        fixture.CoverProvider.Artwork = artwork;
+        var candidate = fixture.Candidate with
+        {
+            OrganisationProposal = fixture.Candidate.OrganisationProposal! with
+            {
+                CoverUrl = "https://covers.openlibrary.org/b/id/123-M.jpg"
+            }
+        };
+
+        var result = await fixture.Service.ExecuteApprovedAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [candidate]);
+
+        Assert.True(result.Succeeded);
+        Assert.Same(artwork, fixture.Metadata.LastUpdate?.CoverArtwork);
+        Assert.True(fixture.Files.FileExists(Path.Combine(fixture.Root, "Author\\Book\\cover.jpg")));
+        Assert.Contains("Plex-compatible cover file", result.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecuteApproved_PreservesExistingCoverFile()
+    {
+        var fixture = CreateFixture(("Incoming\\Book.mp3", "Author\\Book\\Author - Book.mp3"));
+        fixture.Files.AddFile(Path.Combine(fixture.Root, "Author\\Book\\cover.jpg"));
+        fixture.CoverProvider.Artwork = new AudiobookArtwork("image/jpeg", [0xFF, 0xD8, 0xFF, 0xD9]);
+        var candidate = fixture.Candidate with
+        {
+            OrganisationProposal = fixture.Candidate.OrganisationProposal! with
+            {
+                CoverUrl = "https://covers.openlibrary.org/b/id/123-M.jpg"
+            }
+        };
+
+        var result = await fixture.Service.ExecuteApprovedAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [candidate]);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(0, fixture.Files.SidecarWriteCount);
+        Assert.Contains("existing cover file", result.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RecoverInterrupted_RestoresMovedDestinationsWithoutOverwrite()
     {
         var fixture = CreateFixture(("Incoming\\Book.mp3", "Author\\Book\\Author - Book.mp3"));
@@ -289,6 +338,7 @@ public sealed class AudiobookBatchExecutionServiceTests
         var journal = new TestJournalStore();
         var metadata = new TestMetadataWriter();
         var backups = new TestDatabaseBackupService();
+        var coverProvider = new TestCoverArtworkProvider();
         return new ExecutionFixture(
             sourceId,
             root,
@@ -296,8 +346,14 @@ public sealed class AudiobookBatchExecutionServiceTests
             journal,
             candidate,
             metadata,
+            coverProvider,
             backups,
-            new AudiobookBatchExecutionService(journal, files, metadata, backups));
+            new AudiobookBatchExecutionService(
+                journal,
+                files,
+                metadata,
+                coverProvider,
+                backups));
     }
 
     private sealed record ExecutionFixture(
@@ -307,6 +363,7 @@ public sealed class AudiobookBatchExecutionServiceTests
         TestJournalStore Journal,
         AudiobookCandidateGroup Candidate,
         TestMetadataWriter Metadata,
+        TestCoverArtworkProvider CoverProvider,
         TestDatabaseBackupService Backups,
         AudiobookBatchExecutionService Service);
 
@@ -327,6 +384,7 @@ public sealed class AudiobookBatchExecutionServiceTests
     {
         public int WriteCount { get; private set; }
         public int RestoreCount { get; private set; }
+        public AudiobookTagUpdate? LastUpdate { get; private set; }
 
         public AudiobookTagState Read(string path) => new(
             "Original title",
@@ -339,9 +397,23 @@ public sealed class AudiobookBatchExecutionServiceTests
             1,
             null);
 
-        public void Write(string path, AudiobookTagUpdate update) => WriteCount++;
+        public void Write(string path, AudiobookTagUpdate update)
+        {
+            WriteCount++;
+            LastUpdate = update;
+        }
 
         public void Restore(string path, AudiobookTagState state) => RestoreCount++;
+    }
+
+    private sealed class TestCoverArtworkProvider : IAudiobookCoverArtworkProvider
+    {
+        public AudiobookArtwork? Artwork { get; set; }
+
+        public Task<AudiobookArtwork?> FetchAsync(
+            string coverUrl,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(Artwork);
     }
 
     private sealed class TestFileOperator(string root) : IAudiobookFileOperator
@@ -353,6 +425,7 @@ public sealed class AudiobookBatchExecutionServiceTests
 
         public int? FailMoveNumber { get; set; }
         public int MoveCount => _moveCount;
+        public int SidecarWriteCount { get; private set; }
 
         public void AddFile(string path) => _files[path] = new AudiobookFileSnapshot(100, ModifiedAtUtc);
         public void ResetMoveCount() => _moveCount = 0;
@@ -360,6 +433,16 @@ public sealed class AudiobookBatchExecutionServiceTests
         public bool DirectoryExists(string path) => string.Equals(path, root, StringComparison.OrdinalIgnoreCase);
         public AudiobookFileSnapshot GetSnapshot(string path) => _files[path];
         public void CreateDirectory(string path) { }
+
+        public void WriteAllBytesNew(string path, ReadOnlySpan<byte> data)
+        {
+            if (!_files.TryAdd(path, new AudiobookFileSnapshot(data.Length, ModifiedAtUtc)))
+            {
+                throw new IOException("Destination already exists.");
+            }
+
+            SidecarWriteCount++;
+        }
 
         public void Move(string sourcePath, string destinationPath)
         {

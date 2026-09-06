@@ -87,4 +87,28 @@ public sealed class LocalMediaMetadataServiceTests
         Assert.Equal("Embedded artwork", metadata.ArtworkDisplay);
         Assert.Equal("LibriVox", metadata.SourceHintsDisplay);
     }
+
+    [Fact]
+    public void MetadataPresentation_ReportsSidecarArtwork()
+    {
+        var metadata = new LocalMediaMetadata(
+            "book.m4b",
+            new MetadataValue("Book", MetadataValueSource.EmbeddedTag),
+            new MetadataValue("Author", MetadataValueSource.EmbeddedTag),
+            new MetadataValue("Book", MetadataValueSource.EmbeddedTag),
+            new MetadataValue("Fiction", MetadataValueSource.EmbeddedTag),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            false,
+            [],
+            [],
+            HasSidecarArtwork: true);
+
+        Assert.Equal("Local cover file", metadata.ArtworkDisplay);
+    }
 }

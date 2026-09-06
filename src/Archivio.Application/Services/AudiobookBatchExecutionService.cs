@@ -7,6 +7,7 @@ public sealed class AudiobookBatchExecutionService(
     IAudiobookExecutionJournalStore journalStore,
     IAudiobookFileOperator fileOperator,
     IAudiobookMetadataWriter metadataWriter,
+    IAudiobookCoverArtworkProvider coverArtworkProvider,
     IDatabaseBackupService databaseBackupService) : IAudiobookBatchExecutionService
 {
     public async Task<AudiobookExecutionResult> ExecuteApprovedAsync(
@@ -28,7 +29,11 @@ public sealed class AudiobookBatchExecutionService(
                 "A previous execution was interrupted. Recover that journal before starting another run.");
         }
 
-        var preparation = PrepareOperations(libraryRoot, candidates, latest);
+        var preparation = await PrepareOperationsAsync(
+            libraryRoot,
+            candidates,
+            latest,
+            cancellationToken);
         var prepared = preparation.Operations;
         if (prepared.Count == 0)
         {
@@ -144,6 +149,8 @@ public sealed class AudiobookBatchExecutionService(
                 completedAtUtc,
                 completedAtUtc,
                 CancellationToken.None);
+            var sidecars = WriteCoverSidecars(completed);
+            var artworkMessage = BuildArtworkResultMessage(preparation.UnavailableCoverCount, sidecars);
             return new AudiobookExecutionResult(
                 run.Id,
                 AudiobookExecutionRunStatus.Completed,
@@ -151,8 +158,8 @@ public sealed class AudiobookBatchExecutionService(
                 completed.Count + preparation.AlreadyCompletedCount,
                 0,
                 preparation.AlreadyCompletedCount == 0
-                    ? $"Execution complete: {completed.Count:N0} file{(completed.Count == 1 ? string.Empty : "s")} updated and organised safely."
-                    : $"Execution complete: {completed.Count:N0} file{(completed.Count == 1 ? string.Empty : "s")} updated and organised safely; {preparation.AlreadyCompletedCount:N0} had already reached their recorded destinations.");
+                    ? $"Execution complete: {completed.Count:N0} file{(completed.Count == 1 ? string.Empty : "s")} updated and organised safely.{artworkMessage}"
+                    : $"Execution complete: {completed.Count:N0} file{(completed.Count == 1 ? string.Empty : "s")} updated and organised safely; {preparation.AlreadyCompletedCount:N0} had already reached their recorded destinations.{artworkMessage}");
         }
         catch (Exception exception)
         {
@@ -320,10 +327,11 @@ public sealed class AudiobookBatchExecutionService(
         CancellationToken cancellationToken = default) =>
         journalStore.LoadLatestAsync(librarySourceId, cancellationToken);
 
-    private PreparationResult PrepareOperations(
+    private async Task<PreparationResult> PrepareOperationsAsync(
         string libraryRoot,
         IReadOnlyList<AudiobookCandidateGroup> candidates,
-        AudiobookExecutionRunEntry? latestRun)
+        AudiobookExecutionRunEntry? latestRun,
+        CancellationToken cancellationToken)
     {
         var root = Path.GetFullPath(libraryRoot)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -382,6 +390,8 @@ public sealed class AudiobookBatchExecutionService(
             : [];
         var prepared = new List<PreparedOperation>(operations.Count);
         var alreadyCompletedCount = 0;
+        var artworkCache = new Dictionary<string, AudiobookArtwork?>(StringComparer.OrdinalIgnoreCase);
+        var unavailableCoverUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var partsByMediaItemId = candidates
             .SelectMany(candidate => candidate.Parts)
             .GroupBy(part => part.MediaItem.Id)
@@ -457,11 +467,17 @@ public sealed class AudiobookBatchExecutionService(
             }
 
             var originalMetadata = metadataWriter.Read(source);
+            var coverArtwork = await TryFetchCoverArtworkAsync(
+                proposal.CoverUrl,
+                artworkCache,
+                unavailableCoverUrls,
+                cancellationToken);
             var desiredMetadata = CreateMetadataUpdate(
                 proposal,
                 part,
                 trackIndex,
-                planOperations.Count);
+                planOperations.Count,
+                coverArtwork);
             var entry = new AudiobookExecutionOperationEntry(
                 Guid.NewGuid(),
                 index,
@@ -484,7 +500,7 @@ public sealed class AudiobookBatchExecutionService(
                 desiredMetadata));
         }
 
-        return new PreparationResult(prepared, alreadyCompletedCount);
+        return new PreparationResult(prepared, alreadyCompletedCount, unavailableCoverUrls.Count);
     }
 
     private void Revalidate(PreparedOperation operation)
@@ -648,7 +664,8 @@ public sealed class AudiobookBatchExecutionService(
         AudiobookOrganisationProposal proposal,
         AudiobookCandidatePart part,
         int trackNumber,
-        int trackCount)
+        int trackCount,
+        AudiobookArtwork? coverArtwork)
     {
         var title = trackCount == 1
             ? proposal.CanonicalTitle
@@ -661,7 +678,110 @@ public sealed class AudiobookBatchExecutionService(
             proposal.FirstPublishedYear is null ? null : (uint)proposal.FirstPublishedYear.Value,
             (uint)trackNumber,
             (uint)trackCount,
-            proposal.SeriesName);
+            proposal.SeriesName,
+            coverArtwork);
+    }
+
+    private async Task<AudiobookArtwork?> TryFetchCoverArtworkAsync(
+        string? coverUrl,
+        IDictionary<string, AudiobookArtwork?> cache,
+        ISet<string> unavailableCoverUrls,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(coverUrl))
+        {
+            return null;
+        }
+
+        if (!cache.TryGetValue(coverUrl, out var artwork))
+        {
+            try
+            {
+                artwork = await coverArtworkProvider.FetchAsync(coverUrl, cancellationToken);
+            }
+            catch (Exception exception) when (
+                !cancellationToken.IsCancellationRequested &&
+                exception is HttpRequestException or IOException or TaskCanceledException)
+            {
+                artwork = null;
+            }
+
+            cache[coverUrl] = artwork;
+        }
+
+        if (artwork is null)
+        {
+            unavailableCoverUrls.Add(coverUrl);
+        }
+
+        return artwork;
+    }
+
+    private CoverSidecarResult WriteCoverSidecars(IReadOnlyList<PreparedOperation> completed)
+    {
+        var created = 0;
+        var existing = 0;
+        var failed = 0;
+        var folders = completed
+            .Where(operation => operation.DesiredMetadata.CoverArtwork is not null)
+            .GroupBy(
+                operation => Path.GetDirectoryName(operation.DestinationFullPath)!,
+                StringComparer.OrdinalIgnoreCase);
+
+        foreach (var folder in folders)
+        {
+            var artwork = folder.First().DesiredMetadata.CoverArtwork!;
+            var supportedPaths = new[]
+            {
+                Path.Combine(folder.Key, "cover.jpg"),
+                Path.Combine(folder.Key, "cover.jpeg"),
+                Path.Combine(folder.Key, "cover.png")
+            };
+            try
+            {
+                if (supportedPaths.Any(fileOperator.FileExists))
+                {
+                    existing++;
+                    continue;
+                }
+
+                var path = Path.Combine(
+                    folder.Key,
+                    artwork.MimeType == "image/png" ? "cover.png" : "cover.jpg");
+                fileOperator.WriteAllBytesNew(path, artwork.Data);
+                created++;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                failed++;
+            }
+        }
+
+        return new CoverSidecarResult(created, existing, failed);
+    }
+
+    private static string BuildArtworkResultMessage(
+        int unavailableCoverCount,
+        CoverSidecarResult sidecars)
+    {
+        var messages = new List<string>();
+        if (sidecars.CreatedCount > 0)
+        {
+            messages.Add($"{sidecars.CreatedCount:N0} Plex-compatible cover file{(sidecars.CreatedCount == 1 ? string.Empty : "s")} created");
+        }
+
+        if (sidecars.ExistingCount > 0)
+        {
+            messages.Add($"{sidecars.ExistingCount:N0} existing cover file{(sidecars.ExistingCount == 1 ? string.Empty : "s")} preserved");
+        }
+
+        var failedCount = unavailableCoverCount + sidecars.FailedCount;
+        if (failedCount > 0)
+        {
+            messages.Add($"{failedCount:N0} cover{(failedCount == 1 ? string.Empty : "s")} could not be added");
+        }
+
+        return messages.Count == 0 ? string.Empty : $" Artwork: {string.Join("; ", messages)}.";
     }
 
     private void TryRestoreMetadata(
@@ -716,7 +836,10 @@ public sealed class AudiobookBatchExecutionService(
 
     private sealed record PreparationResult(
         List<PreparedOperation> Operations,
-        int AlreadyCompletedCount);
+        int AlreadyCompletedCount,
+        int UnavailableCoverCount);
+
+    private sealed record CoverSidecarResult(int CreatedCount, int ExistingCount, int FailedCount);
 
     private sealed record RollbackResult(int RolledBackCount, int FailedCount);
 }

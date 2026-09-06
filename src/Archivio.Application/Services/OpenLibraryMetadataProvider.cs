@@ -85,7 +85,7 @@ public sealed class OpenLibraryMetadataProvider : IBookMetadataProvider, IDispos
                     document.Subjects?.Take(20).ToList() ?? [],
                     document.CoverId is null
                         ? null
-                        : $"https://covers.openlibrary.org/b/id/{document.CoverId}-M.jpg",
+                        : $"https://covers.openlibrary.org/b/id/{document.CoverId}-L.jpg?default=false",
                     $"https://openlibrary.org{document.Key}"))
                 .ToList() ?? [];
         }

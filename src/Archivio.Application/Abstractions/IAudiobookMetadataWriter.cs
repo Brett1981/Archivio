@@ -1,5 +1,7 @@
 namespace Archivio.Application.Abstractions;
 
+public sealed record AudiobookArtwork(string MimeType, byte[] Data);
+
 public sealed record AudiobookTagState(
     string? Title,
     IReadOnlyList<string> Performers,
@@ -9,7 +11,8 @@ public sealed record AudiobookTagState(
     uint Year,
     uint Track,
     uint TrackCount,
-    string? Grouping);
+    string? Grouping,
+    IReadOnlyList<AudiobookArtwork>? Pictures = null);
 
 public sealed record AudiobookTagUpdate(
     string Title,
@@ -19,7 +22,8 @@ public sealed record AudiobookTagUpdate(
     uint? Year,
     uint Track,
     uint TrackCount,
-    string? SeriesName);
+    string? SeriesName,
+    AudiobookArtwork? CoverArtwork = null);
 
 public interface IAudiobookMetadataWriter
 {

@@ -54,7 +54,8 @@ public sealed class LocalMediaMetadataService : ILocalMediaMetadataService
                 parsed.SourceHints,
                 warnings,
                 tag.TrackCount == 0 ? null : tag.TrackCount,
-                string.IsNullOrWhiteSpace(tag.Grouping) ? null : tag.Grouping.Trim());
+                string.IsNullOrWhiteSpace(tag.Grouping) ? null : tag.Grouping.Trim(),
+                HasSidecarArtwork(filePath));
         }
         catch (Exception exception) when (exception is CorruptFileException or UnsupportedFormatException or IOException or UnauthorizedAccessException)
         {
@@ -86,4 +87,12 @@ public sealed class LocalMediaMetadataService : ILocalMediaMetadataService
 
     private static string? First(params string?[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+
+    private static bool HasSidecarArtwork(string filePath)
+    {
+        var directory = Path.GetDirectoryName(filePath);
+        return !string.IsNullOrWhiteSpace(directory) &&
+               new[] { "cover.jpg", "cover.jpeg", "cover.png" }
+                   .Any(name => System.IO.File.Exists(Path.Combine(directory, name)));
+    }
 }

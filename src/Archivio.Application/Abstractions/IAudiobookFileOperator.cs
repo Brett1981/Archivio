@@ -7,4 +7,5 @@ public interface IAudiobookFileOperator
     AudiobookFileSnapshot GetSnapshot(string path);
     void CreateDirectory(string path);
     void Move(string sourcePath, string destinationPath);
+    void WriteAllBytesNew(string path, ReadOnlySpan<byte> data);
 }

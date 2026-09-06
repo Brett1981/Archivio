@@ -34,7 +34,8 @@ public sealed record AudiobookOrganisationProposal(
     AudiobookCollectionHandling CollectionHandling = AudiobookCollectionHandling.Automatic,
     string? SeriesName = null,
     int? SeriesPosition = null,
-    string? CollectionPlanKey = null)
+    string? CollectionPlanKey = null,
+    string? CoverUrl = null)
 {
     public string CanonicalDisplay => $"{CanonicalAuthor} — {CanonicalTitle}";
     public string YearDisplay => FirstPublishedYear is null

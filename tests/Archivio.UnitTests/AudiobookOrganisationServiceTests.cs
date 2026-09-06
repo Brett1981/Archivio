@@ -7,6 +7,63 @@ namespace Archivio.UnitTests;
 public sealed class AudiobookOrganisationServiceTests
 {
     [Fact]
+    public async Task HighConfidenceSingleWithEmbeddedIdentity_IsAcceptedWithoutManualConfirmation()
+    {
+        var sourceId = Guid.NewGuid();
+        var candidate = CreateCandidate(
+            sourceId,
+            "A Murder Is Announced",
+            "Agatha Christie",
+            confidence: 1m,
+            genre: "Mystery");
+        var service = new AudiobookOrganisationService(
+            new StubOrganisationStore(),
+            new StubReviewOverrideStore());
+
+        var result = await service.PrepareProposalsAsync(sourceId, [candidate]);
+        var proposal = Assert.IsType<AudiobookOrganisationProposal>(
+            Assert.Single(result).OrganisationProposal);
+
+        Assert.True(proposal.ReadyForAutomaticHandling);
+        Assert.False(proposal.UsesManualAuthor);
+        Assert.False(proposal.UsesManualTitle);
+        Assert.DoesNotContain(
+            proposal.Warnings,
+            warning => warning.Contains("identity", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task OnlineSuggestionCover_IsCarriedIntoTheExecutionProposal()
+    {
+        var sourceId = Guid.NewGuid();
+        const string coverUrl = "https://covers.openlibrary.org/b/id/123-L.jpg?default=false";
+        var candidate = CreateCandidate(
+            sourceId,
+            "A Murder Is Announced",
+            "Agatha Christie",
+            confidence: 1m,
+            genre: "Mystery") with
+        {
+            OnlineSuggestion = CreateSuggestion(
+                "/works/OL1W",
+                "A Murder Is Announced",
+                "Agatha Christie",
+                1950,
+                ["Mystery"]) with
+            {
+                CoverUrl = coverUrl
+            }
+        };
+        var service = new AudiobookOrganisationService(
+            new StubOrganisationStore(),
+            new StubReviewOverrideStore());
+
+        var result = await service.PrepareProposalsAsync(sourceId, [candidate]);
+
+        Assert.Equal(coverUrl, Assert.Single(result).OrganisationProposal?.CoverUrl);
+    }
+
+    [Fact]
     public async Task GenreOverride_PersistsRevalidatesAndCanBeRestoredToAutomatic()
     {
         var sourceId = Guid.NewGuid();

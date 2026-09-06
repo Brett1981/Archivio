@@ -318,7 +318,14 @@ public sealed partial class MainWindowViewModel
         AudiobookIdentityCorrectionStatus = proposal?.UsesManualAuthor == true ||
                                             proposal?.UsesManualTitle == true
             ? $"Author and title confirmed by you as {proposal.CanonicalAuthor} — {proposal.CanonicalTitle}."
-            : "Confirm the complete author and audiobook title; no files will be changed.";
+            : value is
+            {
+                ReviewConfidence: 1m,
+                AuthorSource: MetadataValueSource.EmbeddedTag,
+                TitleSource: MetadataValueSource.EmbeddedTag
+            }
+                ? "Author and title accepted automatically from high-confidence embedded metadata. Edit only to correct them."
+                : "Correct the author or audiobook title if Metaroq's suggested identity is wrong; no files will be changed.";
         AudiobookReviewCorrectionStatus = proposal?.UsesManualGenre == true
             ? $"Genre confirmed by you as {proposal.GenreCategory}."
             : "Choose a genre to correct this audiobook plan; no files will be changed.";

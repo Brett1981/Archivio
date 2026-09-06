@@ -28,7 +28,8 @@ public sealed class TagLibAudiobookMetadataWriterTests
                 2026,
                 3,
                 12,
-                "The Series"));
+                "The Series",
+                new AudiobookArtwork("image/jpeg", [0xFF, 0xD8, 0xFF, 0xD9])));
 
             var updated = writer.Read(path);
             Assert.Equal("The Book - Track 003", updated.Title);
@@ -40,6 +41,9 @@ public sealed class TagLibAudiobookMetadataWriterTests
             Assert.Equal(3u, updated.Track);
             Assert.Equal(12u, updated.TrackCount);
             Assert.Equal("The Series", updated.Grouping);
+            var picture = Assert.Single(updated.Pictures!);
+            Assert.Equal("image/jpeg", picture.MimeType);
+            Assert.Equal([0xFF, 0xD8, 0xFF, 0xD9], picture.Data);
 
             writer.Restore(path, original);
 
@@ -53,6 +57,7 @@ public sealed class TagLibAudiobookMetadataWriterTests
             Assert.Equal(original.Track, restored.Track);
             Assert.Equal(original.TrackCount, restored.TrackCount);
             Assert.Equal(original.Grouping, restored.Grouping);
+            Assert.Equal(original.Pictures, restored.Pictures);
         }
         finally
         {

@@ -10,7 +10,8 @@ internal sealed class AudiobookExecutionConfirmationService : IAudiobookExecutio
         var fileLabel = operationCount == 1 ? "file" : "files";
         var message =
             $"Metaroq is ready to execute {planCount:N0} approved {planLabel} covering {operationCount:N0} {fileLabel}.\n\n" +
-            "Each file's embedded metadata will be updated to the approved author, title, genre, year, series, and track order. " +
+            "Each file's embedded metadata will be updated to the approved author, title, genre, year, series, track order, and available cover artwork. " +
+            "A Plex-compatible cover file will also be added to the audiobook folder when artwork is available; existing cover files are preserved. " +
             "Every source and destination will be checked again, and existing destinations will never be overwritten. " +
             "If a later operation fails, completed moves and original metadata will be rolled back where safe.\n\nContinue?";
         return MessageBox.Show(

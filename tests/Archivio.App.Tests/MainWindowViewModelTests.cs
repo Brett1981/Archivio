@@ -31,6 +31,19 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public void PerfectEmbeddedSingleFileIdentity_IsPresentedAsAutomaticallyAccepted()
+    {
+        var viewModel = CreateViewModel(new CountingBatchPlanningService());
+
+        viewModel.SelectedAudiobookCandidate = CreateCandidateWithBatchPlan();
+
+        Assert.Contains(
+            "accepted automatically",
+            viewModel.AudiobookIdentityCorrectionStatus,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void ItemFirstReview_CollapsesRelatedCandidatesIntoOneAudiobookPlan()
     {
         var viewModel = CreateViewModel(new CountingBatchPlanningService());

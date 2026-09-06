@@ -18,4 +18,10 @@ internal sealed class LocalAudiobookFileOperator : IAudiobookFileOperator
 
     public void Move(string sourcePath, string destinationPath) =>
         File.Move(sourcePath, destinationPath, overwrite: false);
+
+    public void WriteAllBytesNew(string path, ReadOnlySpan<byte> data)
+    {
+        using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        stream.Write(data);
+    }
 }

@@ -9,7 +9,7 @@ public sealed partial class AudiobookOrganisationService(
     IAudiobookOrganisationStore organisationStore,
     IAudiobookReviewOverrideStore? reviewOverrideStore = null) : IAudiobookOrganisationService
 {
-    private const string ProposalAlgorithmVersion = "audiobook-organisation-v10";
+    private const string ProposalAlgorithmVersion = "audiobook-organisation-v11";
     private static readonly HashSet<string> ReservedWindowsNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "CON", "PRN", "AUX", "NUL",
@@ -589,7 +589,8 @@ public sealed partial class AudiobookOrganisationService(
                         : AudiobookCollectionHandling.SeparateBooks,
                     SeriesName: seriesName,
                     SeriesPosition: seriesPosition,
-                    CollectionPlanKey: collectionContext?.PlanKey);
+                    CollectionPlanKey: collectionContext?.PlanKey,
+                    CoverUrl: onlineSuggestion?.CoverUrl);
                 var signature = CreateInputSignature(candidate, groupCandidateKeys, proposal);
                 result[candidate.CandidateKey] = new AudiobookOrganisationCacheEntry(
                     candidate.CandidateKey,
@@ -1242,7 +1243,8 @@ public sealed partial class AudiobookOrganisationService(
             proposal.CollectionHandling,
             Normalize(proposal.SeriesName ?? string.Empty),
             proposal.SeriesPosition,
-            proposal.CollectionPlanKey);
+            proposal.CollectionPlanKey,
+            proposal.CoverUrl);
         return CreateHash(value);
     }
 

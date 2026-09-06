@@ -9,7 +9,7 @@ namespace Archivio.Application.Services;
 public sealed partial class AudiobookBatchPlanningService(
     IAudiobookBatchDecisionStore decisionStore) : IAudiobookBatchPlanningService
 {
-    private const string BatchAlgorithmVersion = "audiobook-batch-v3";
+    private const string BatchAlgorithmVersion = "audiobook-batch-v4";
 
     public async Task<IReadOnlyList<AudiobookCandidateGroup>> PrepareBatchAsync(
         Guid librarySourceId,
@@ -318,7 +318,9 @@ public sealed partial class AudiobookBatchPlanningService(
         int totalCount)
     {
         var metadata = part.Metadata;
-        if (!MetadataEquals(metadata.Author.Value, proposal.CanonicalAuthor) ||
+        if (!string.IsNullOrWhiteSpace(proposal.CoverUrl) &&
+            (!metadata.HasEmbeddedArtwork || !metadata.HasSidecarArtwork) ||
+            !MetadataEquals(metadata.Author.Value, proposal.CanonicalAuthor) ||
             !MetadataEquals(metadata.Album.Value, proposal.CanonicalTitle) ||
             !MetadataEquals(metadata.Genre.Value, proposal.GenreCategory) ||
             metadata.TrackNumber != (uint)sequence ||

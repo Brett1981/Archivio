@@ -10,6 +10,7 @@ public static class DependencyInjection
         services.AddSingleton<IAppDataPaths, LocalAppDataPaths>();
         services.AddSingleton<IDirectoryService, LocalDirectoryService>();
         services.AddSingleton<IAudiobookFileOperator, LocalAudiobookFileOperator>();
+        services.AddSingleton<IAudiobookCoverArtworkProvider, OpenLibraryCoverArtworkProvider>();
         services.AddSingleton<IAudioPreviewService, WindowsAudioPreviewService>();
         return services;
     }
