@@ -54,7 +54,9 @@ public sealed class AudiobookExecutionJournalStoreTests
                 AudiobookFileOperationKind.MoveAndRename,
                 AudiobookExecutionOperationStatus.Pending,
                 1234,
-                started)]);
+                started)],
+            source.Path,
+            Path.Combine(Path.GetTempPath(), "Organised Audiobooks"));
         var store = new AudiobookExecutionJournalStore(factory);
 
         await store.CreateAsync(run);
@@ -75,6 +77,8 @@ public sealed class AudiobookExecutionJournalStoreTests
         Assert.NotNull(loaded);
         Assert.Equal(AudiobookExecutionRunStatus.Completed, loaded.Status);
         Assert.Equal(1, loaded.CompletedOperationCount);
+        Assert.Equal(run.SourceRoot, loaded.SourceRoot);
+        Assert.Equal(run.DestinationRoot, loaded.DestinationRoot);
         var operation = Assert.Single(loaded.Operations);
         Assert.Equal(AudiobookExecutionOperationStatus.Completed, operation.Status);
         Assert.Equal("signature", operation.InputSignature);

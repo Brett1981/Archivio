@@ -156,6 +156,15 @@
                             <TextBox Text="{Binding SourcePath, UpdateSourceTrigger=PropertyChanged}" Padding="9,7" />
                             <Button Grid.Column="2" Content="Browse..." Command="{Binding BrowseCommand}" Padding="11,7" />
                         </Grid>
+                        <TextBlock Text="Destination folder" Foreground="#CBD5E1" Margin="0,12,0,5" />
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="8" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <TextBox Text="{Binding DestinationPath, UpdateSourceTrigger=PropertyChanged}" Padding="9,7"
+                                     ToolTip="Leave blank to organise files within the scanned library folder" />
+                            <Button Grid.Column="2" Content="Browse..." Command="{Binding BrowseDestinationCommand}" Padding="11,7" />
+                        </Grid>
+                        <TextBlock Text="Optional. Leave blank to use the scanned library folder."
+                                   Foreground="#94A3B8" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap" />
                         <TextBlock Text="Content type" Foreground="#CBD5E1" Margin="0,12,0,5" />
                         <ComboBox ItemsSource="{Binding SourceTypes}" SelectedItem="{Binding SourceType}" Padding="7" />
                         <CheckBox Content="Enabled" IsChecked="{Binding SourceIsEnabled}" Foreground="White" Margin="0,12,0,0" />
@@ -328,7 +337,7 @@
                         </UniformGrid>
                         <UniformGrid Columns="3" Margin="0,2,0,0">
                             <Button Content="{Binding ApproveSafeBatchLabel}" Command="{Binding ApproveSafeBatchCommand}" Padding="8,5" Margin="0,0,8,0"
-                                    ToolTip="Approve clean, 100%-confidence plans. Multipart books qualify only after Metaroq verifies a complete order, consistent identity, and conflict-free destination." />
+                                    ToolTip="Approve any automation-safe plans that were manually reset. High-confidence plans are normally approved automatically after identity and safety validation." />
                             <Button Content="Defer blocked" Command="{Binding DeferBlockedBatchCommand}" Padding="8,5" Margin="0,0,8,0"
                                     ToolTip="Mark review-required and conflicting plans as deferred" />
                             <Button Content="Reset decisions" Command="{Binding ResetBatchDecisionsCommand}" Padding="8,5"

@@ -23,6 +23,8 @@ internal sealed class AudiobookExecutionJournalStore(
             UpdatedAtUtc = run.UpdatedAtUtc,
             CompletedAtUtc = run.CompletedAtUtc,
             ErrorMessage = run.ErrorMessage,
+            SourceRoot = run.SourceRoot,
+            DestinationRoot = run.DestinationRoot,
             Operations = run.Operations.Select(operation => new AudiobookExecutionOperationEntity
             {
                 Id = operation.Id,
@@ -122,7 +124,9 @@ internal sealed class AudiobookExecutionJournalStore(
                     AsUtc(operation.SourceModifiedAtUtc),
                     operation.ErrorMessage,
                     operation.OriginalMetadataJson))
-                .ToList());
+                .ToList(),
+            run.SourceRoot,
+            run.DestinationRoot);
     }
 
     private static TEnum ReadEnum<TEnum>(int value) where TEnum : struct, Enum =>

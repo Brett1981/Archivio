@@ -17,6 +17,28 @@ public sealed class LibrarySourceTests
         Assert.Equal(LibrarySourceType.Audiobooks, source.Type);
         Assert.True(source.IsEnabled);
         Assert.Equal(source.CreatedAtUtc, source.UpdatedAtUtc);
+        Assert.Null(source.DestinationPath);
+        Assert.Equal(source.Path, source.EffectiveDestinationPath);
+    }
+
+    [Fact]
+    public void DestinationPath_OverridesSourceAndCanBeResetToDefault()
+    {
+        var sourcePath = Path.Combine(Path.GetTempPath(), "Incoming");
+        var destinationPath = Path.Combine(Path.GetTempPath(), "Organised");
+        var source = new LibrarySource(
+            "Audiobooks",
+            sourcePath,
+            LibrarySourceType.Audiobooks,
+            destinationPath);
+
+        Assert.Equal(Path.GetFullPath(destinationPath), source.DestinationPath);
+        Assert.Equal(source.DestinationPath, source.EffectiveDestinationPath);
+
+        source.ChangeDestinationPath(null);
+
+        Assert.Null(source.DestinationPath);
+        Assert.Equal(source.Path, source.EffectiveDestinationPath);
     }
 
     [Fact]

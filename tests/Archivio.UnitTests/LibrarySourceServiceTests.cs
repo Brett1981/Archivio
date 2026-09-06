@@ -24,6 +24,24 @@ public sealed class LibrarySourceServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_SavesSeparateExistingDestination()
+    {
+        var repository = new FakeLibrarySourceRepository();
+        var service = new LibrarySourceService(repository, new FakeDirectoryService(true));
+        var sourcePath = Path.Combine(Path.GetTempPath(), "Incoming");
+        var destinationPath = Path.Combine(Path.GetTempPath(), "Organised");
+
+        var source = await service.CreateAsync(
+            "Audiobooks",
+            sourcePath,
+            LibrarySourceType.Audiobooks,
+            destinationPath);
+
+        Assert.Equal(Path.GetFullPath(destinationPath), source.DestinationPath);
+        Assert.Equal(source.DestinationPath, source.EffectiveDestinationPath);
+    }
+
+    [Fact]
     public async Task CreateAsync_RejectsMissingDirectory()
     {
         var repository = new FakeLibrarySourceRepository();

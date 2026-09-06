@@ -40,8 +40,6 @@ public sealed record AudiobookCandidateGroup(
     public int ReviewSourceFileCount => OrganisationProposal?.SourceFileCount ?? Parts.Count;
     public bool IsAutomationSafe =>
         IsPrimaryOrganisationPlan &&
-        ReviewConfidence == 1m &&
-        !NeedsReview &&
         OrganisationProposal is
         {
             ReadyForAutomaticHandling: true,
@@ -66,7 +64,8 @@ public sealed record AudiobookCandidateGroup(
     public bool ReviewItemNeedsReview => IsIndividualApprovalPending ||
         BatchPlan?.IsBlocked == true ||
         (OrganisationProposal is not null
-            ? !OrganisationProposal.ReadyForAutomaticHandling
+            ? !OrganisationProposal.ReadyForAutomaticHandling &&
+              BatchPlan?.Decision != AudiobookBatchDecision.Approved
             : NeedsReview);
     public string ReviewItemStatusLabel => ReviewItemNeedsReview ? "Needs review" : "High confidence";
     public string ReviewItemSummary => OrganisationProposal is null

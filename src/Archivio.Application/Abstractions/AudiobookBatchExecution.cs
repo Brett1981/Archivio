@@ -48,7 +48,9 @@ public sealed record AudiobookExecutionRunEntry(
     DateTime UpdatedAtUtc,
     DateTime? CompletedAtUtc,
     string? ErrorMessage,
-    IReadOnlyList<AudiobookExecutionOperationEntry> Operations);
+    IReadOnlyList<AudiobookExecutionOperationEntry> Operations,
+    string? SourceRoot = null,
+    string? DestinationRoot = null);
 
 public sealed record AudiobookExecutionProgress(
     int ProcessedCount,

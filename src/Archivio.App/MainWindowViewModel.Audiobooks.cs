@@ -454,6 +454,7 @@ public sealed partial class MainWindowViewModel
             updated = await _audiobookBatchPlanningService.PrepareBatchAsync(
                 source.Id,
                 source.Path,
+                source.EffectiveDestinationPath,
                 updated,
                 MediaItems.ToList());
             if (SelectedSource?.Id != source.Id)
@@ -533,6 +534,7 @@ public sealed partial class MainWindowViewModel
             updated = await _audiobookBatchPlanningService.PrepareBatchAsync(
                 source.Id,
                 source.Path,
+                source.EffectiveDestinationPath,
                 updated,
                 MediaItems.ToList());
             AudiobookCandidates = new ObservableCollection<AudiobookCandidateGroup>(updated);
@@ -608,6 +610,7 @@ public sealed partial class MainWindowViewModel
             updated = await _audiobookBatchPlanningService.PrepareBatchAsync(
                 source.Id,
                 source.Path,
+                source.EffectiveDestinationPath,
                 updated,
                 MediaItems.ToList());
             if (SelectedSource?.Id != source.Id)
@@ -685,6 +688,7 @@ public sealed partial class MainWindowViewModel
             updated = await _audiobookBatchPlanningService.PrepareBatchAsync(
                 source.Id,
                 source.Path,
+                source.EffectiveDestinationPath,
                 updated,
                 MediaItems.ToList());
             if (SelectedSource?.Id != source.Id)
@@ -832,6 +836,7 @@ public sealed partial class MainWindowViewModel
                 () => _audiobookBatchExecutionService.ExecuteApprovedAsync(
                     source.Id,
                     source.Path,
+                    source.EffectiveDestinationPath,
                     candidates,
                     progress,
                     cancellationToken),
@@ -952,6 +957,7 @@ public sealed partial class MainWindowViewModel
                 () => _audiobookBatchExecutionService.RecoverInterruptedAsync(
                     source.Id,
                     source.Path,
+                    source.EffectiveDestinationPath,
                     progress,
                     cancellationToken),
                 cancellationToken);
@@ -1176,6 +1182,7 @@ public sealed partial class MainWindowViewModel
             var result = await _audiobookBatchPlanningService.PrepareBatchAsync(
                 librarySourceId,
                 SelectedSource.Path,
+                SelectedSource.EffectiveDestinationPath,
                 candidates,
                 MediaItems.ToList(),
                 cancellationToken);
@@ -1210,7 +1217,7 @@ public sealed partial class MainWindowViewModel
         await ApplyBatchDecisionAsync(
             keys,
             AudiobookBatchDecision.Approved,
-            $"Bulk approved {keys.Count:N0} clean 100%-confidence plan{(keys.Count == 1 ? string.Empty : "s")}");
+            $"Bulk approved {keys.Count:N0} automation-safe plan{(keys.Count == 1 ? string.Empty : "s")}");
     }
 
     [RelayCommand]

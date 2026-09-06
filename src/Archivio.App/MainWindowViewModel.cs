@@ -71,6 +71,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private string _sourcePath = string.Empty;
 
     [ObservableProperty]
+    private string _destinationPath = string.Empty;
+
+    [ObservableProperty]
     private LibrarySourceType _sourceType = LibrarySourceType.Mixed;
 
     [ObservableProperty]
@@ -140,6 +143,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         SourceName = value.Name;
         SourcePath = value.Path;
+        DestinationPath = value.DestinationPath ?? string.Empty;
         SourceType = value.Type;
         SourceIsEnabled = value.IsEnabled;
         Status = $"Editing {value.Name}";
@@ -170,6 +174,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         SelectedSource = null;
         SourceName = string.Empty;
         SourcePath = string.Empty;
+        DestinationPath = string.Empty;
         SourceType = LibrarySourceType.Mixed;
         SourceIsEnabled = true;
         Status = "Ready to add a library source";
@@ -185,6 +190,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
+    [RelayCommand]
+    private void BrowseDestination()
+    {
+        var selectedPath = _folderPickerService.PickFolder(
+            string.IsNullOrWhiteSpace(DestinationPath) ? SourcePath : DestinationPath);
+        if (!string.IsNullOrWhiteSpace(selectedPath))
+        {
+            DestinationPath = selectedPath;
+        }
+    }
+
     private bool CanSave() => !IsBusy && !IsScanRunning && !IsAudiobookExecutionRunning &&
         !string.IsNullOrWhiteSpace(SourceName) && !string.IsNullOrWhiteSpace(SourcePath);
 
@@ -196,19 +212,26 @@ public sealed partial class MainWindowViewModel : ObservableObject
             LibrarySource saved;
             if (SelectedSource is null)
             {
-                saved = await _librarySourceService.CreateAsync(SourceName, SourcePath, SourceType);
+                saved = await _librarySourceService.CreateAsync(
+                    SourceName,
+                    SourcePath,
+                    SourceType,
+                    NullIfWhiteSpace(DestinationPath));
                 Status = $"Added {saved.Name}";
             }
             else
             {
                 saved = await _librarySourceService.UpdateAsync(SelectedSource.Id, SourceName, SourcePath,
-                    SourceType, SourceIsEnabled);
+                    SourceType, SourceIsEnabled, NullIfWhiteSpace(DestinationPath));
                 Status = $"Updated {saved.Name}";
             }
 
             await RefreshSourcesAsync(saved.Id);
         });
     }
+
+    private static string? NullIfWhiteSpace(string value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value;
 
     private bool CanDelete() => !IsBusy && !IsScanRunning && !IsAudiobookExecutionRunning && SelectedSource is not null;
 

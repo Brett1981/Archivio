@@ -9,6 +9,7 @@ public interface ILibrarySourceService
         string name,
         string path,
         LibrarySourceType type,
+        string? destinationPath = null,
         CancellationToken cancellationToken = default);
     Task<LibrarySource> UpdateAsync(
         Guid id,
@@ -16,6 +17,7 @@ public interface ILibrarySourceService
         string path,
         LibrarySourceType type,
         bool isEnabled,
+        string? destinationPath = null,
         CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);
 }

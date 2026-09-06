@@ -9,7 +9,7 @@ public sealed partial class AudiobookOrganisationService(
     IAudiobookOrganisationStore organisationStore,
     IAudiobookReviewOverrideStore? reviewOverrideStore = null) : IAudiobookOrganisationService
 {
-    private const string ProposalAlgorithmVersion = "audiobook-organisation-v11";
+    private const string ProposalAlgorithmVersion = "audiobook-organisation-v12";
     private static readonly HashSet<string> ReservedWindowsNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "CON", "PRN", "AUX", "NUL",
@@ -527,12 +527,12 @@ public sealed partial class AudiobookOrganisationService(
                                                     IsAuthoritativeLocalSource(candidate.TitleSource));
             var hasNoReviewFlags = organisedPathIdentity is not null ||
                                    relatedCandidates.All(candidate => candidate.Warnings.Count == 0) &&
-                                   (hasManualIdentity || relatedCandidates.All(candidate => !candidate.NeedsReview));
+                                   (hasManualIdentity || effectiveOnlineSuggestion is not null ||
+                                    relatedCandidates.All(candidate => !candidate.NeedsReview));
             var identityReviewCleared = !identity.RequiresReview ||
                                         hasManualIdentity && !IsTrackSequenceWarning(identity.Warning);
             var ready = !string.Equals(canonicalAuthor, "Unknown Author", StringComparison.OrdinalIgnoreCase) &&
                         meaningfulTitle &&
-                        genre.Category != "Uncategorised" &&
                         hasNoReviewFlags &&
                         identityReviewCleared &&
                         (organisedPathIdentity is not null || hasManualIdentity || effectiveOnlineSuggestion is not null
@@ -550,7 +550,6 @@ public sealed partial class AudiobookOrganisationService(
                 relatedCandidates,
                 canonicalAuthor,
                 meaningfulTitle,
-                genre.Category,
                 onlineSuggestion is null && !hasAuthoritativeLocalIdentity,
                 identityReviewCleared ? null : identity.Warning,
                 ready);
@@ -1132,7 +1131,6 @@ public sealed partial class AudiobookOrganisationService(
         IReadOnlyList<AudiobookCandidateGroup> candidates,
         string canonicalAuthor,
         bool meaningfulTitle,
-        string genreCategory,
         bool lacksAuthoritativeLocalIdentity,
         string? identityWarning,
         bool ready)
@@ -1146,11 +1144,6 @@ public sealed partial class AudiobookOrganisationService(
         if (!meaningfulTitle)
         {
             warnings.Add("The inferred title appears to be a chapter, track, disc, or part label.");
-        }
-
-        if (genreCategory == "Uncategorised")
-        {
-            warnings.Add("No genre folder has been proposed.");
         }
 
         if (candidates.Any(candidate => candidate.NeedsReview) &&

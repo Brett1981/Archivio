@@ -22,7 +22,7 @@ public sealed class AudiobookBatchPlanningServiceTests
         var plan = Assert.IsType<AudiobookBatchPlan>(Assert.Single(result).BatchPlan);
         var operation = Assert.Single(plan.Operations);
         Assert.Equal(AudiobookBatchValidationStatus.Ready, plan.ValidationStatus);
-        Assert.Equal(AudiobookBatchDecision.Pending, plan.Decision);
+        Assert.Equal(AudiobookBatchDecision.Approved, plan.Decision);
         Assert.Equal(fixture.Item.RelativePath, operation.SourceRelativePath);
         Assert.Equal(
             Path.Combine("Author", "Book", "Author - Book.mp3"),
@@ -106,6 +106,85 @@ public sealed class AudiobookBatchPlanningServiceTests
         var plan = Assert.IsType<AudiobookBatchPlan>(Assert.Single(result).BatchPlan);
         Assert.Equal(AudiobookBatchValidationStatus.ReviewRequired, plan.ValidationStatus);
         Assert.Equal(AudiobookBatchDecision.Pending, plan.Decision);
+    }
+
+    [Fact]
+    public async Task PrepareBatch_LeavesLowConfidencePlanPendingForReview()
+    {
+        var fixture = CreateCandidate("plan-1", "Author", "Book", ready: true);
+        var candidate = fixture.Candidate with
+        {
+            Confidence = 0.70m,
+            Warnings = ["Identity confidence is low."],
+            OrganisationProposal = fixture.Candidate.OrganisationProposal! with
+            {
+                ReadyForAutomaticHandling = false,
+                Warnings = ["Author or title needs review."]
+            }
+        };
+        var service = new AudiobookBatchPlanningService(new StubDecisionStore());
+
+        var result = await service.PrepareBatchAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [candidate],
+            [fixture.Item]);
+
+        var plan = Assert.IsType<AudiobookBatchPlan>(Assert.Single(result).BatchPlan);
+        Assert.Equal(AudiobookBatchValidationStatus.ReviewRequired, plan.ValidationStatus);
+        Assert.Equal(AudiobookBatchDecision.Pending, plan.Decision);
+    }
+
+    [Fact]
+    public async Task PrepareBatch_AutoApprovesPlanWhoseLowConfidenceEvidenceWasResolvedOnline()
+    {
+        var fixture = CreateCandidate("plan-1", "Author", "Book", ready: true);
+        var candidate = fixture.Candidate with
+        {
+            Confidence = 0.70m,
+            OrganisationProposal = fixture.Candidate.OrganisationProposal! with
+            {
+                UsesOnlineMetadata = true
+            }
+        };
+        var service = new AudiobookBatchPlanningService(new StubDecisionStore());
+
+        var result = await service.PrepareBatchAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [candidate],
+            [fixture.Item]);
+
+        var plan = Assert.IsType<AudiobookBatchPlan>(Assert.Single(result).BatchPlan);
+        Assert.True(candidate.NeedsReview);
+        Assert.Equal(AudiobookBatchValidationStatus.Ready, plan.ValidationStatus);
+        Assert.Equal(AudiobookBatchDecision.Approved, plan.Decision);
+    }
+
+    [Fact]
+    public async Task PrepareBatch_PreservesExplicitDeferralForAutomationSafePlan()
+    {
+        var fixture = CreateCandidate("plan-1", "Author", "Book", ready: true);
+        var store = new StubDecisionStore();
+        var service = new AudiobookBatchPlanningService(store);
+        var prepared = await service.PrepareBatchAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [fixture.Candidate],
+            [fixture.Item]);
+        var deferred = await service.SetDecisionAsync(
+            fixture.SourceId,
+            prepared,
+            ["plan-1"],
+            AudiobookBatchDecision.Deferred);
+
+        var restored = await service.PrepareBatchAsync(
+            fixture.SourceId,
+            fixture.Root,
+            deferred,
+            [fixture.Item]);
+
+        Assert.Equal(AudiobookBatchDecision.Deferred, Assert.Single(restored).BatchPlan?.Decision);
     }
 
     [Fact]
@@ -407,6 +486,83 @@ public sealed class AudiobookBatchPlanningServiceTests
         Assert.Equal(AudiobookFileOperationKind.NoChange, Assert.Single(plan.Operations).Kind);
     }
 
+    [Fact]
+    public async Task PrepareBatch_MovesCanonicalFileWhenDestinationRootDiffers()
+    {
+        var fixture = CreateCanonicalCandidate(tagsMatch: true);
+        var destinationRoot = Path.Combine(
+            Path.GetTempPath(),
+            "Archivio.Destination.Tests",
+            Guid.NewGuid().ToString("N"));
+        var service = new AudiobookBatchPlanningService(new StubDecisionStore());
+
+        var result = await service.PrepareBatchAsync(
+            fixture.SourceId,
+            fixture.Root,
+            destinationRoot,
+            [fixture.Candidate],
+            [fixture.Item]);
+
+        var plan = Assert.IsType<AudiobookBatchPlan>(Assert.Single(result).BatchPlan);
+        var operation = Assert.Single(plan.Operations);
+        Assert.Equal(AudiobookBatchValidationStatus.Ready, plan.ValidationStatus);
+        Assert.Equal(AudiobookFileOperationKind.MoveAndRename, operation.Kind);
+        Assert.Equal(fixture.Item.RelativePath, operation.SourceRelativePath);
+        Assert.Equal(fixture.Item.RelativePath, operation.DestinationRelativePath);
+    }
+
+    [Fact]
+    public async Task PrepareBatch_BlocksExistingFileInSeparateDestination()
+    {
+        var fixture = CreateCanonicalCandidate(tagsMatch: true);
+        var destinationRoot = Path.Combine(
+            Path.GetTempPath(),
+            "Archivio.Destination.Tests",
+            Guid.NewGuid().ToString("N"));
+        var occupiedPath = Path.Combine(destinationRoot, fixture.Item.RelativePath);
+        var service = new AudiobookBatchPlanningService(
+            new StubDecisionStore(),
+            new OccupiedDestinationFileOperator(occupiedPath));
+
+        var result = await service.PrepareBatchAsync(
+            fixture.SourceId,
+            fixture.Root,
+            destinationRoot,
+            [fixture.Candidate],
+            [fixture.Item]);
+
+        var plan = Assert.IsType<AudiobookBatchPlan>(Assert.Single(result).BatchPlan);
+        Assert.Equal(AudiobookBatchValidationStatus.Conflict, plan.ValidationStatus);
+        Assert.Contains(
+            plan.Warnings,
+            warning => warning.Contains("will not be overwritten", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task PrepareBatch_DoesNotReplaceExistingTagsWithUnavailableOptionalMetadata()
+    {
+        var fixture = CreateCanonicalCandidate(tagsMatch: true);
+        var candidate = fixture.Candidate with
+        {
+            OrganisationProposal = fixture.Candidate.OrganisationProposal! with
+            {
+                FirstPublishedYear = null,
+                GenreCategory = "Uncategorised"
+            }
+        };
+        var service = new AudiobookBatchPlanningService(new StubDecisionStore());
+
+        var result = await service.PrepareBatchAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [candidate],
+            [fixture.Item]);
+
+        var plan = Assert.IsType<AudiobookBatchPlan>(Assert.Single(result).BatchPlan);
+        Assert.Equal(AudiobookBatchValidationStatus.NoChange, plan.ValidationStatus);
+        Assert.Equal(AudiobookFileOperationKind.NoChange, Assert.Single(plan.Operations).Kind);
+    }
+
     private static CandidateFixture CreateCanonicalCandidate(bool tagsMatch)
     {
         var sourceId = Guid.NewGuid();
@@ -578,5 +734,17 @@ public sealed class AudiobookBatchPlanningServiceTests
 
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class OccupiedDestinationFileOperator(string occupiedPath) : IAudiobookFileOperator
+    {
+        public bool FileExists(string path) =>
+            string.Equals(path, occupiedPath, StringComparison.OrdinalIgnoreCase);
+
+        public bool DirectoryExists(string path) => true;
+        public AudiobookFileSnapshot GetSnapshot(string path) => throw new NotSupportedException();
+        public void CreateDirectory(string path) => throw new NotSupportedException();
+        public void WriteAllBytesNew(string path, ReadOnlySpan<byte> data) => throw new NotSupportedException();
+        public void Move(string sourcePath, string destinationPath) => throw new NotSupportedException();
     }
 }

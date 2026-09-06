@@ -32,6 +32,9 @@ public sealed class DatabaseMigrationTests
         Assert.Equal(1, await CountTableAsync(connection, "AudiobookReviewOverrides"));
         Assert.Equal(1, await CountTableAsync(connection, "AudiobookExecutionRuns"));
         Assert.Equal(1, await CountTableAsync(connection, "AudiobookExecutionOperations"));
+        Assert.Equal(1, await CountColumnAsync(connection, "LibrarySources", "DestinationPath"));
+        Assert.Equal(1, await CountColumnAsync(connection, "AudiobookExecutionRuns", "SourceRoot"));
+        Assert.Equal(1, await CountColumnAsync(connection, "AudiobookExecutionRuns", "DestinationRoot"));
         Assert.Equal(1, await CountMigrationAsync(connection, "202607210001_InitialCreate"));
         Assert.Equal(1, await CountMigrationAsync(connection, "202607210002_AddLibrarySources"));
         Assert.Equal(1, await CountMigrationAsync(connection, "20260721120000_AddMediaItems"));
@@ -44,6 +47,7 @@ public sealed class DatabaseMigrationTests
         Assert.Equal(1, await CountMigrationAsync(connection, "20260905170000_AddAudiobookIdentityReviewOverrides"));
         Assert.Equal(1, await CountMigrationAsync(connection, "20260905190000_AddAudiobookSeriesReviewOverrides"));
         Assert.Equal(1, await CountMigrationAsync(connection, "20260905200000_AddAudiobookExecutionMetadataJournal"));
+        Assert.Equal(1, await CountMigrationAsync(connection, "20260906160000_AddLibraryDestinationPath"));
     }
 
     private static async Task<long> CountTableAsync(SqliteConnection connection, string tableName)
@@ -59,6 +63,17 @@ public sealed class DatabaseMigrationTests
         await using var command = connection.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM __EFMigrationsHistory WHERE MigrationId=$migrationId;";
         command.Parameters.AddWithValue("$migrationId", migrationId);
+        return Convert.ToInt64(await command.ExecuteScalarAsync());
+    }
+
+    private static async Task<long> CountColumnAsync(
+        SqliteConnection connection,
+        string tableName,
+        string columnName)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{tableName}') WHERE name=$columnName;";
+        command.Parameters.AddWithValue("$columnName", columnName);
         return Convert.ToInt64(await command.ExecuteScalarAsync());
     }
 }

@@ -40,6 +40,7 @@ public sealed class ArchivioDbContext(DbContextOptions<ArchivioDbContext> option
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Name).HasMaxLength(128).IsRequired();
             entity.Property(x => x.Path).HasMaxLength(1024).IsRequired();
+            entity.Property(x => x.DestinationPath).HasMaxLength(1024);
             entity.Property(x => x.Type).HasConversion<int>().IsRequired();
             entity.Property(x => x.IsEnabled).IsRequired();
             entity.Property(x => x.CreatedAtUtc).IsRequired();
@@ -192,6 +193,8 @@ public sealed class ArchivioDbContext(DbContextOptions<ArchivioDbContext> option
             entity.Property(x => x.StartedAtUtc).IsRequired();
             entity.Property(x => x.UpdatedAtUtc).IsRequired();
             entity.Property(x => x.ErrorMessage).HasMaxLength(2048);
+            entity.Property(x => x.SourceRoot).HasMaxLength(1024);
+            entity.Property(x => x.DestinationRoot).HasMaxLength(1024);
             entity.HasIndex(x => new { x.LibrarySourceId, x.StartedAtUtc });
             entity.HasOne<LibrarySource>()
                 .WithMany()

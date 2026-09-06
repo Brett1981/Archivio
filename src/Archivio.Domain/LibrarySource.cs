@@ -4,11 +4,12 @@ public sealed class LibrarySource
 {
     private LibrarySource() { }
 
-    public LibrarySource(string name, string path, LibrarySourceType type)
+    public LibrarySource(string name, string path, LibrarySourceType type, string? destinationPath = null)
     {
         Id = Guid.NewGuid();
         Name = ValidateName(name);
         Path = NormalizePath(path);
+        DestinationPath = NormalizeOptionalDestinationPath(destinationPath, Path);
         Type = ValidateType(type);
         IsEnabled = true;
         CreatedAtUtc = DateTime.UtcNow;
@@ -18,6 +19,8 @@ public sealed class LibrarySource
     public Guid Id { get; private set; }
     public string Name { get; private set; } = string.Empty;
     public string Path { get; private set; } = string.Empty;
+    public string? DestinationPath { get; private set; }
+    public string EffectiveDestinationPath => DestinationPath ?? Path;
     public LibrarySourceType Type { get; private set; }
     public bool IsEnabled { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
@@ -31,7 +34,19 @@ public sealed class LibrarySource
 
     public void ChangePath(string path)
     {
+        var previousPath = Path;
         Path = NormalizePath(path);
+        if (string.Equals(DestinationPath, previousPath, StringComparison.OrdinalIgnoreCase))
+        {
+            DestinationPath = null;
+        }
+
+        Touch();
+    }
+
+    public void ChangeDestinationPath(string? destinationPath)
+    {
+        DestinationPath = NormalizeOptionalDestinationPath(destinationPath, Path);
         Touch();
     }
 
@@ -83,6 +98,19 @@ public sealed class LibrarySource
         }
 
         return fullPath;
+    }
+
+    private static string? NormalizeOptionalDestinationPath(string? destinationPath, string sourcePath)
+    {
+        if (string.IsNullOrWhiteSpace(destinationPath))
+        {
+            return null;
+        }
+
+        var normalized = NormalizePath(destinationPath);
+        return string.Equals(normalized, sourcePath, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : normalized;
     }
 
     private static LibrarySourceType ValidateType(LibrarySourceType type)

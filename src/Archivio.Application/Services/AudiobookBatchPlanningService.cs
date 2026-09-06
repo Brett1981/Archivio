@@ -7,18 +7,35 @@ using Archivio.Domain;
 namespace Archivio.Application.Services;
 
 public sealed partial class AudiobookBatchPlanningService(
-    IAudiobookBatchDecisionStore decisionStore) : IAudiobookBatchPlanningService
+    IAudiobookBatchDecisionStore decisionStore,
+    IAudiobookFileOperator? fileOperator = null) : IAudiobookBatchPlanningService
 {
-    private const string BatchAlgorithmVersion = "audiobook-batch-v4";
+    private const string BatchAlgorithmVersion = "audiobook-batch-v5";
 
-    public async Task<IReadOnlyList<AudiobookCandidateGroup>> PrepareBatchAsync(
+    public Task<IReadOnlyList<AudiobookCandidateGroup>> PrepareBatchAsync(
         Guid librarySourceId,
         string libraryRoot,
         IReadOnlyList<AudiobookCandidateGroup> candidates,
         IReadOnlyList<MediaItem> indexedMedia,
+        CancellationToken cancellationToken = default) =>
+        PrepareBatchAsync(
+            librarySourceId,
+            libraryRoot,
+            libraryRoot,
+            candidates,
+            indexedMedia,
+            cancellationToken);
+
+    public async Task<IReadOnlyList<AudiobookCandidateGroup>> PrepareBatchAsync(
+        Guid librarySourceId,
+        string sourceRoot,
+        string destinationRoot,
+        IReadOnlyList<AudiobookCandidateGroup> candidates,
+        IReadOnlyList<MediaItem> indexedMedia,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(libraryRoot);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceRoot);
+        ArgumentException.ThrowIfNullOrWhiteSpace(destinationRoot);
         ArgumentNullException.ThrowIfNull(candidates);
         ArgumentNullException.ThrowIfNull(indexedMedia);
 
@@ -36,7 +53,8 @@ public sealed partial class AudiobookBatchPlanningService(
             .Where(candidate => candidate.OrganisationProposal is not null)
             .GroupBy(candidate => candidate.OrganisationProposal!.PlanKey, StringComparer.Ordinal)
             .Select(group => CreatePlan(
-                libraryRoot,
+                sourceRoot,
+                destinationRoot,
                 group.ToList(),
                 indexedByRelativePath,
                 preparedAtUtc))
@@ -44,17 +62,35 @@ public sealed partial class AudiobookBatchPlanningService(
 
         AddCrossPlanDestinationConflicts(plans);
         plans = plans.Values
-            .Select(WithInputSignature)
+            .Select(plan => WithInputSignature(plan, sourceRoot, destinationRoot))
             .ToDictionary(plan => plan.PlanKey, StringComparer.Ordinal);
 
         var savedDecisions = await decisionStore.LoadAsync(librarySourceId, cancellationToken);
+        var automationSafePlanKeys = candidates
+            .Where(candidate =>
+                candidate.IsPrimaryOrganisationPlan &&
+                candidate.OrganisationProposal is
+                {
+                    ReadyForAutomaticHandling: true,
+                    Warnings.Count: 0
+                })
+            .Select(candidate => candidate.OrganisationProposal!.PlanKey)
+            .ToHashSet(StringComparer.Ordinal);
         var entriesToSave = new List<AudiobookBatchDecisionEntry>();
         foreach (var (planKey, plan) in plans.ToList())
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var decision = AudiobookBatchDecision.Pending;
-            if (savedDecisions.TryGetValue(planKey, out var saved) &&
-                saved.InputSignature == plan.InputSignature)
+            savedDecisions.TryGetValue(planKey, out var saved);
+            var isAutomationSafe = plan.CanApprove &&
+                                   plan.Warnings.Count == 0 &&
+                                   automationSafePlanKeys.Contains(planKey);
+            var decision = saved?.Decision == AudiobookBatchDecision.Deferred
+                ? AudiobookBatchDecision.Deferred
+                : isAutomationSafe
+                    ? AudiobookBatchDecision.Approved
+                    : AudiobookBatchDecision.Pending;
+            if (!isAutomationSafe &&
+                saved?.InputSignature == plan.InputSignature)
             {
                 decision = saved.Decision == AudiobookBatchDecision.Approved && !plan.CanApprove
                     ? AudiobookBatchDecision.Pending
@@ -123,8 +159,9 @@ public sealed partial class AudiobookBatchPlanningService(
             .ToList();
     }
 
-    private static AudiobookBatchPlan CreatePlan(
-        string libraryRoot,
+    private AudiobookBatchPlan CreatePlan(
+        string sourceRoot,
+        string destinationRoot,
         IReadOnlyList<AudiobookCandidateGroup> candidates,
         IReadOnlyDictionary<string, List<MediaItem>> indexedByRelativePath,
         DateTime preparedAtUtc)
@@ -164,7 +201,7 @@ public sealed partial class AudiobookBatchPlanningService(
                 parts.Count,
                 part.MediaItem.Extension);
             var destination = Path.Combine(proposal.SuggestedRelativeFolder, destinationFileName);
-            if (!TryValidateRelativeDestination(libraryRoot, destination, out var validationWarning))
+            if (!TryValidateRelativeDestination(destinationRoot, destination, out var validationWarning))
             {
                 warnings.Add($"{part.MediaItem.FileName}: {validationWarning}");
             }
@@ -174,7 +211,8 @@ public sealed partial class AudiobookBatchPlanningService(
                 warnings.Add($"Source is marked missing: {part.MediaItem.RelativePath}");
             }
 
-            if (indexedByRelativePath.TryGetValue(destination, out var occupants) &&
+            if (PathsEqual(sourceRoot, destinationRoot) &&
+                indexedByRelativePath.TryGetValue(destination, out var occupants) &&
                 occupants.Any(item => item.Id != part.MediaItem.Id))
             {
                 var outsidePlan = occupants.Any(item => !sourceIds.Contains(item.Id));
@@ -183,11 +221,21 @@ public sealed partial class AudiobookBatchPlanningService(
                     : $"Destination is occupied by another source file in this plan: {destination}");
             }
 
+            var sourceFullPath = Path.GetFullPath(Path.Combine(sourceRoot, part.MediaItem.RelativePath));
+            var destinationFullPath = Path.GetFullPath(Path.Combine(destinationRoot, destination));
+            if (!PathsEqual(sourceFullPath, destinationFullPath) &&
+                fileOperator?.FileExists(destinationFullPath) == true)
+            {
+                warnings.Add($"Destination already exists and will not be overwritten: {destination}");
+            }
+
             operations.Add(new AudiobookFileOperation(
                 part.MediaItem.Id,
                 part.MediaItem.RelativePath,
                 destination,
                 SelectOperationKind(
+                    sourceRoot,
+                    destinationRoot,
                     part.MediaItem.RelativePath,
                     destination,
                     NeedsMetadataUpdate(part, proposal, index + 1, parts.Count))));
@@ -292,11 +340,15 @@ public sealed partial class AudiobookBatchPlanningService(
     }
 
     private static AudiobookFileOperationKind SelectOperationKind(
+        string sourceRoot,
+        string destinationRoot,
         string source,
         string destination,
         bool metadataNeedsUpdate = false)
     {
-        if (string.Equals(source, destination, StringComparison.OrdinalIgnoreCase))
+        var sourceFullPath = Path.GetFullPath(Path.Combine(sourceRoot, source));
+        var destinationFullPath = Path.GetFullPath(Path.Combine(destinationRoot, destination));
+        if (PathsEqual(sourceFullPath, destinationFullPath))
         {
             return metadataNeedsUpdate
                 ? AudiobookFileOperationKind.UpdateMetadata
@@ -304,8 +356,8 @@ public sealed partial class AudiobookBatchPlanningService(
         }
 
         return string.Equals(
-            Path.GetDirectoryName(source),
-            Path.GetDirectoryName(destination),
+            Path.GetDirectoryName(sourceFullPath),
+            Path.GetDirectoryName(destinationFullPath),
             StringComparison.OrdinalIgnoreCase)
             ? AudiobookFileOperationKind.Rename
             : AudiobookFileOperationKind.MoveAndRename;
@@ -318,12 +370,17 @@ public sealed partial class AudiobookBatchPlanningService(
         int totalCount)
     {
         var metadata = part.Metadata;
+        var hasGenreProposal = !string.Equals(
+            proposal.GenreCategory,
+            "Uncategorised",
+            StringComparison.Ordinal);
         if (!string.IsNullOrWhiteSpace(proposal.CoverUrl) && !metadata.HasEmbeddedArtwork ||
             !MetadataEquals(metadata.Author.Value, proposal.CanonicalAuthor) ||
             !MetadataEquals(metadata.Album.Value, proposal.CanonicalTitle) ||
-            !MetadataEquals(metadata.Genre.Value, proposal.GenreCategory) ||
+            hasGenreProposal && !MetadataEquals(metadata.Genre.Value, proposal.GenreCategory) ||
             metadata.TrackNumber != (uint)sequence ||
             metadata.TrackCount != (uint)totalCount ||
+            !string.IsNullOrWhiteSpace(proposal.SeriesName) &&
             !MetadataEquals(metadata.SeriesName, proposal.SeriesName))
         {
             return true;
@@ -431,11 +488,16 @@ public sealed partial class AudiobookBatchPlanningService(
         return part.SequenceWasInferred && trackNumber > 0;
     }
 
-    private static AudiobookBatchPlan WithInputSignature(AudiobookBatchPlan plan)
+    private static AudiobookBatchPlan WithInputSignature(
+        AudiobookBatchPlan plan,
+        string sourceRoot,
+        string destinationRoot)
     {
         var value = string.Join(
             '|',
             BatchAlgorithmVersion,
+            Path.GetFullPath(sourceRoot),
+            Path.GetFullPath(destinationRoot),
             plan.PlanKey,
             plan.ValidationStatus,
             string.Join(';', plan.Operations.Select(operation =>
@@ -444,6 +506,12 @@ public sealed partial class AudiobookBatchPlanningService(
         var signature = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
         return plan with { InputSignature = signature };
     }
+
+    private static bool PathsEqual(string left, string right) =>
+        string.Equals(
+            Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            StringComparison.OrdinalIgnoreCase);
 
     private static AudiobookBatchDecisionEntry ToDecisionEntry(
         AudiobookBatchPlan plan,

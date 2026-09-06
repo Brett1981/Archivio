@@ -33,6 +33,36 @@ public sealed class AudiobookOrganisationServiceTests
     }
 
     [Fact]
+    public async Task ReliableOnlineMatch_ResolvesLowConfidenceLocalIdentityWithoutManualConfirmation()
+    {
+        var sourceId = Guid.NewGuid();
+        var candidate = CreateCandidate(
+            sourceId,
+            "A Murder Is Announced",
+            "Agatha Christie",
+            confidence: 0.60m) with
+        {
+            OnlineSuggestion = CreateSuggestion(
+                "/works/OL1W",
+                "A Murder Is Announced",
+                "Agatha Christie",
+                1950,
+                ["Mystery"])
+        };
+        var service = new AudiobookOrganisationService(new StubOrganisationStore());
+
+        var result = await service.PrepareProposalsAsync(sourceId, [candidate]);
+        var proposal = Assert.IsType<AudiobookOrganisationProposal>(
+            Assert.Single(result).OrganisationProposal);
+
+        Assert.True(candidate.NeedsReview);
+        Assert.True(proposal.ReadyForAutomaticHandling);
+        Assert.True(proposal.UsesOnlineMetadata);
+        Assert.Equal("Mystery & Thriller", proposal.GenreCategory);
+        Assert.Equal(1950, proposal.FirstPublishedYear);
+    }
+
+    [Fact]
     public async Task OnlineSuggestionCover_IsCarriedIntoTheExecutionProposal()
     {
         var sourceId = Guid.NewGuid();
@@ -119,7 +149,10 @@ public sealed class AudiobookOrganisationServiceTests
             Assert.Single(initial).OrganisationProposal);
 
         Assert.Equal("Uncategorised", initialProposal.GenreCategory);
-        Assert.False(initialProposal.ReadyForAutomaticHandling);
+        Assert.True(initialProposal.ReadyForAutomaticHandling);
+        Assert.DoesNotContain(
+            initialProposal.Warnings,
+            warning => warning.Contains("genre", StringComparison.OrdinalIgnoreCase));
 
         var corrected = await service.SetGenreOverrideAsync(
             sourceId,
@@ -148,7 +181,7 @@ public sealed class AudiobookOrganisationServiceTests
 
         Assert.Equal("Uncategorised", restoredProposal.GenreCategory);
         Assert.False(restoredProposal.UsesManualGenre);
-        Assert.False(restoredProposal.ReadyForAutomaticHandling);
+        Assert.True(restoredProposal.ReadyForAutomaticHandling);
     }
 
     [Fact]
@@ -434,7 +467,7 @@ public sealed class AudiobookOrganisationServiceTests
 
         var proposal = Assert.IsType<AudiobookOrganisationProposal>(Assert.Single(result).OrganisationProposal);
         Assert.Equal("Uncategorised", proposal.GenreCategory);
-        Assert.False(proposal.ReadyForAutomaticHandling);
+        Assert.True(proposal.ReadyForAutomaticHandling);
     }
 
     [Fact]

@@ -14,10 +14,12 @@ public sealed class LibrarySourceService(
         string name,
         string path,
         LibrarySourceType type,
+        string? destinationPath = null,
         CancellationToken cancellationToken = default)
     {
-        var source = new LibrarySource(name, path, type);
+        var source = new LibrarySource(name, path, type, destinationPath);
         ValidateDirectoryExists(source.Path);
+        ValidateDirectoryExists(source.EffectiveDestinationPath, "destination");
 
         if (await repository.PathExistsAsync(source.Path, cancellationToken: cancellationToken))
         {
@@ -35,13 +37,15 @@ public sealed class LibrarySourceService(
         string path,
         LibrarySourceType type,
         bool isEnabled,
+        string? destinationPath = null,
         CancellationToken cancellationToken = default)
     {
         var source = await repository.GetByIdAsync(id, cancellationToken)
             ?? throw new KeyNotFoundException($"Library source '{id}' was not found.");
 
-        var normalizedCandidate = new LibrarySource(name, path, type);
+        var normalizedCandidate = new LibrarySource(name, path, type, destinationPath);
         ValidateDirectoryExists(normalizedCandidate.Path);
+        ValidateDirectoryExists(normalizedCandidate.EffectiveDestinationPath, "destination");
 
         if (await repository.PathExistsAsync(normalizedCandidate.Path, id, cancellationToken))
         {
@@ -50,6 +54,7 @@ public sealed class LibrarySourceService(
 
         source.Rename(name);
         source.ChangePath(path);
+        source.ChangeDestinationPath(destinationPath);
         source.ChangeType(type);
         source.SetEnabled(isEnabled);
 
@@ -66,11 +71,11 @@ public sealed class LibrarySourceService(
         await repository.SaveChangesAsync(cancellationToken);
     }
 
-    private void ValidateDirectoryExists(string path)
+    private void ValidateDirectoryExists(string path, string role = "source")
     {
         if (!directoryService.Exists(path))
         {
-            throw new DirectoryNotFoundException($"The library source directory '{path}' does not exist.");
+            throw new DirectoryNotFoundException($"The library {role} directory '{path}' does not exist.");
         }
     }
 }

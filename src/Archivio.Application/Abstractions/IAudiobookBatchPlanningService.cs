@@ -6,7 +6,8 @@ public interface IAudiobookBatchPlanningService
 {
     Task<IReadOnlyList<AudiobookCandidateGroup>> PrepareBatchAsync(
         Guid librarySourceId,
-        string libraryRoot,
+        string sourceRoot,
+        string destinationRoot,
         IReadOnlyList<AudiobookCandidateGroup> candidates,
         IReadOnlyList<MediaItem> indexedMedia,
         CancellationToken cancellationToken = default);

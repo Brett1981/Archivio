@@ -16,7 +16,11 @@ public sealed class LibrarySourceRepositoryTests
     public async Task AddAndGetById_RoundTripsLibrarySource()
     {
         await using var fixture = await RepositoryFixture.CreateAsync();
-        var source = new LibrarySource("Films", CreatePath("films"), LibrarySourceType.Movies);
+        var source = new LibrarySource(
+            "Films",
+            CreatePath("films"),
+            LibrarySourceType.Movies,
+            CreatePath("organised-films"));
 
         await fixture.Repository.AddAsync(source);
         await fixture.Repository.SaveChangesAsync();
@@ -28,6 +32,8 @@ public sealed class LibrarySourceRepositoryTests
         Assert.Equal(source.Id, persisted.Id);
         Assert.Equal("Films", persisted.Name);
         Assert.Equal(Path.GetFullPath(source.Path), persisted.Path);
+        Assert.Equal(Path.GetFullPath(source.DestinationPath!), persisted.DestinationPath);
+        Assert.Equal(persisted.DestinationPath, persisted.EffectiveDestinationPath);
         Assert.Equal(LibrarySourceType.Movies, persisted.Type);
         Assert.True(persisted.IsEnabled);
     }

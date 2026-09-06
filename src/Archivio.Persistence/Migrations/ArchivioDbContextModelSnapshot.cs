@@ -71,12 +71,14 @@ public partial class ArchivioDbContextModelSnapshot : ModelSnapshot
         modelBuilder.Entity<AudiobookExecutionRunEntity>(entity =>
         {
             entity.Property(x => x.Id).HasColumnType("TEXT");
+            entity.Property(x => x.DestinationRoot).HasMaxLength(1024).HasColumnType("TEXT");
             entity.Property(x => x.LibrarySourceId).HasColumnType("TEXT");
             entity.Property(x => x.Status).HasColumnType("INTEGER");
             entity.Property(x => x.PlannedOperationCount).HasColumnType("INTEGER");
             entity.Property(x => x.CompletedOperationCount).HasColumnType("INTEGER");
             entity.Property(x => x.RolledBackOperationCount).HasColumnType("INTEGER");
             entity.Property(x => x.StartedAtUtc).HasColumnType("TEXT");
+            entity.Property(x => x.SourceRoot).HasMaxLength(1024).HasColumnType("TEXT");
             entity.Property(x => x.UpdatedAtUtc).HasColumnType("TEXT");
             entity.Property(x => x.CompletedAtUtc).HasColumnType("TEXT");
             entity.Property(x => x.ErrorMessage).HasMaxLength(2048).HasColumnType("TEXT");
@@ -135,6 +137,7 @@ public partial class ArchivioDbContextModelSnapshot : ModelSnapshot
         {
             entity.Property(x => x.Id).HasColumnType("TEXT");
             entity.Property(x => x.CreatedAtUtc).HasColumnType("TEXT");
+            entity.Property(x => x.DestinationPath).HasMaxLength(1024).HasColumnType("TEXT");
             entity.Property(x => x.IsEnabled).HasColumnType("INTEGER");
             entity.Property(x => x.Name).IsRequired().HasMaxLength(128).HasColumnType("TEXT");
             entity.Property(x => x.Path).IsRequired().HasMaxLength(1024).HasColumnType("TEXT");

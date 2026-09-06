@@ -65,6 +65,50 @@ public sealed class TagLibAudiobookMetadataWriterTests
         }
     }
 
+    [Fact]
+    public void Write_PreservesOptionalTagsWhenEnrichmentIsUnavailable()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            "Metaroq.Metadata.Tests",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "book.wav");
+        CreateSilentWave(path);
+        try
+        {
+            var writer = new TagLibAudiobookMetadataWriter();
+            writer.Write(path, new AudiobookTagUpdate(
+                "Original title",
+                "Original author",
+                "Original album",
+                "Mystery",
+                1997,
+                1,
+                1,
+                "Original series"));
+
+            writer.Write(path, new AudiobookTagUpdate(
+                "Canonical title",
+                "Canonical author",
+                "Canonical title",
+                null,
+                null,
+                1,
+                1,
+                null));
+
+            var updated = writer.Read(path);
+            Assert.Contains("Mystery", updated.Genres);
+            Assert.Equal(1997u, updated.Year);
+            Assert.Equal("Original series", updated.Grouping);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private static void CreateSilentWave(string path)
     {
         const int sampleRate = 8_000;

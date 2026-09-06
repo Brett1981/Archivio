@@ -138,7 +138,7 @@ public sealed class MainWindowViewModelTests
             1m,
             AudiobookBatchValidationStatus.NoChange);
         var multiFile = CreateBulkApprovalCandidate("multi", 7, 1m);
-        var multiFileNeedsJudgement = CreateBulkApprovalCandidate("multi-not-perfect", 7, 0.99m);
+        var multiFileNeedsJudgement = CreateBulkApprovalCandidate("multi-low-confidence", 7, 0.70m);
         var lessThanPerfect = CreateBulkApprovalCandidate("not-perfect", 1, 0.99m);
         var reviewRequired = CreateBulkApprovalCandidate(
             "review-required",
@@ -148,7 +148,7 @@ public sealed class MainWindowViewModelTests
         viewModel.AudiobookCandidates =
             [eligible, eligibleNoChange, multiFile, multiFileNeedsJudgement, lessThanPerfect, reviewRequired];
 
-        Assert.Equal(3, viewModel.BulkApprovalEligibleCount);
+        Assert.Equal(4, viewModel.BulkApprovalEligibleCount);
         Assert.Equal(1, viewModel.IndividualApprovalRequiredCount);
         Assert.False(multiFile.RequiresIndividualApproval);
         Assert.False(multiFile.ReviewItemNeedsReview);
@@ -161,26 +161,26 @@ public sealed class MainWindowViewModelTests
 
         Assert.Equal(AudiobookBatchDecision.Approved, Assert.Single(batchPlanningService.Decisions));
         Assert.Equal(
-            ["eligible", "eligible-no-change", "multi"],
+            ["eligible", "eligible-no-change", "multi", "not-perfect"],
             Assert.Single(batchPlanningService.PlanKeys).Order(StringComparer.Ordinal).ToList());
         Assert.Equal(0, viewModel.BulkApprovalEligibleCount);
         Assert.Equal(
             AudiobookBatchDecision.Pending,
-            viewModel.AudiobookCandidates.Single(candidate => candidate.BatchPlan?.PlanKey == "multi-not-perfect").BatchPlan?.Decision);
+            viewModel.AudiobookCandidates.Single(candidate => candidate.BatchPlan?.PlanKey == "multi-low-confidence").BatchPlan?.Decision);
         var bulkApprovedMultiFile = viewModel.AudiobookCandidates.Single(
             candidate => candidate.BatchPlan?.PlanKey == "multi");
         Assert.True(bulkApprovedMultiFile.IsAutomationSafe);
         Assert.False(bulkApprovedMultiFile.RequiresIndividualApproval);
 
         viewModel.SelectedAudiobookCandidate = viewModel.AudiobookCandidates.Single(
-            candidate => candidate.BatchPlan?.PlanKey == "multi-not-perfect");
+            candidate => candidate.BatchPlan?.PlanKey == "multi-low-confidence");
         Assert.True(viewModel.ApproveSelectedBatchCommand.CanExecute(null));
 
         await viewModel.ApproveSelectedBatchCommand.ExecuteAsync(null);
 
-        Assert.Equal("multi-not-perfect", Assert.Single(batchPlanningService.PlanKeys[1]));
+        Assert.Equal("multi-low-confidence", Assert.Single(batchPlanningService.PlanKeys[1]));
         var approvedMultiFile = viewModel.AudiobookCandidates.Single(
-            candidate => candidate.BatchPlan?.PlanKey == "multi-not-perfect");
+            candidate => candidate.BatchPlan?.PlanKey == "multi-low-confidence");
         Assert.False(approvedMultiFile.IsIndividualApprovalPending);
         Assert.False(approvedMultiFile.ReviewItemNeedsReview);
         Assert.Equal("Individually approved", approvedMultiFile.BatchApprovalValidationLabel);
@@ -536,7 +536,7 @@ public sealed class MainWindowViewModelTests
                 RelatedCandidateCount = 1,
                 SourceFileCount = sourceFileCount,
                 Confidence = confidence,
-                ReadyForAutomaticHandling = validationStatus is
+                ReadyForAutomaticHandling = confidence >= 0.90m && validationStatus is
                     AudiobookBatchValidationStatus.Ready or AudiobookBatchValidationStatus.NoChange,
                 Warnings = []
             },
@@ -602,7 +602,8 @@ public sealed class MainWindowViewModelTests
 
         public Task<IReadOnlyList<AudiobookCandidateGroup>> PrepareBatchAsync(
             Guid librarySourceId,
-            string libraryRoot,
+            string sourceRoot,
+            string destinationRoot,
             IReadOnlyList<AudiobookCandidateGroup> candidates,
             IReadOnlyList<MediaItem> indexedMedia,
             CancellationToken cancellationToken = default)
@@ -683,7 +684,8 @@ public sealed class MainWindowViewModelTests
 
         public Task<IReadOnlyList<AudiobookCandidateGroup>> PrepareBatchAsync(
             Guid librarySourceId,
-            string libraryRoot,
+            string sourceRoot,
+            string destinationRoot,
             IReadOnlyList<AudiobookCandidateGroup> candidates,
             IReadOnlyList<MediaItem> indexedMedia,
             CancellationToken cancellationToken = default)
@@ -888,6 +890,7 @@ public sealed class MainWindowViewModelTests
             string name,
             string path,
             LibrarySourceType type,
+            string? destinationPath = null,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         public Task<LibrarySource> UpdateAsync(
@@ -896,6 +899,7 @@ public sealed class MainWindowViewModelTests
             string path,
             LibrarySourceType type,
             bool isEnabled,
+            string? destinationPath = null,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         public Task DeleteAsync(Guid id, CancellationToken cancellationToken = default) =>
@@ -944,7 +948,8 @@ public sealed class MainWindowViewModelTests
 
         public Task<AudiobookExecutionResult> ExecuteApprovedAsync(
             Guid librarySourceId,
-            string libraryRoot,
+            string sourceRoot,
+            string destinationRoot,
             IReadOnlyList<AudiobookCandidateGroup> candidates,
             IProgress<AudiobookExecutionProgress>? progress = null,
             CancellationToken cancellationToken = default)
@@ -962,7 +967,8 @@ public sealed class MainWindowViewModelTests
 
         public Task<AudiobookExecutionResult> RecoverInterruptedAsync(
             Guid librarySourceId,
-            string libraryRoot,
+            string sourceRoot,
+            string destinationRoot,
             IProgress<AudiobookExecutionProgress>? progress = null,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(new AudiobookExecutionResult(
@@ -983,7 +989,8 @@ public sealed class MainWindowViewModelTests
     {
         public Task<AudiobookExecutionResult> ExecuteApprovedAsync(
             Guid librarySourceId,
-            string libraryRoot,
+            string sourceRoot,
+            string destinationRoot,
             IReadOnlyList<AudiobookCandidateGroup> candidates,
             IProgress<AudiobookExecutionProgress>? progress = null,
             CancellationToken cancellationToken = default) =>
@@ -992,7 +999,8 @@ public sealed class MainWindowViewModelTests
 
         public Task<AudiobookExecutionResult> RecoverInterruptedAsync(
             Guid librarySourceId,
-            string libraryRoot,
+            string sourceRoot,
+            string destinationRoot,
             IProgress<AudiobookExecutionProgress>? progress = null,
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();

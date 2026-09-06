@@ -12,6 +12,8 @@ internal sealed class AudiobookExecutionRunEntity
     public DateTime UpdatedAtUtc { get; set; }
     public DateTime? CompletedAtUtc { get; set; }
     public string? ErrorMessage { get; set; }
+    public string? SourceRoot { get; set; }
+    public string? DestinationRoot { get; set; }
     public List<AudiobookExecutionOperationEntity> Operations { get; set; } = [];
 }
 

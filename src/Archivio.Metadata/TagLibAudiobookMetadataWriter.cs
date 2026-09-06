@@ -34,14 +34,24 @@ public sealed class TagLibAudiobookMetadataWriter : IAudiobookMetadataWriter
         tag.Performers = [update.Author];
         tag.AlbumArtists = [update.Author];
         tag.Album = update.Album;
-        tag.Genres = [update.Genre];
-        tag.Year = update.Year ?? 0;
+        if (!string.IsNullOrWhiteSpace(update.Genre))
+        {
+            tag.Genres = [update.Genre];
+        }
+
+        if (update.Year is not null)
+        {
+            tag.Year = update.Year.Value;
+        }
 
         tag.Track = update.Track;
         tag.TrackCount = update.TrackCount;
-        tag.Grouping = string.IsNullOrWhiteSpace(update.SeriesName)
-            ? null
-            : update.SeriesName;
+        if (update.SeriesName is not null)
+        {
+            tag.Grouping = string.IsNullOrWhiteSpace(update.SeriesName)
+                ? null
+                : update.SeriesName;
+        }
         if (update.CoverArtwork is not null)
         {
             tag.Pictures = [CreatePicture(update.CoverArtwork)];

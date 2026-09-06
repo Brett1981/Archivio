@@ -18,7 +18,7 @@ public sealed record AudiobookTagUpdate(
     string Title,
     string Author,
     string Album,
-    string Genre,
+    string? Genre,
     uint? Year,
     uint Track,
     uint TrackCount,

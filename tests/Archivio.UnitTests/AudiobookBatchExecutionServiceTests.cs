@@ -29,6 +29,31 @@ public sealed class AudiobookBatchExecutionServiceTests
     }
 
     [Fact]
+    public async Task ExecuteApproved_MovesFileToSeparateDestinationAndJournalsBothRoots()
+    {
+        var fixture = CreateFixture(("Incoming\\Book.mp3", "Author\\Book\\Author - Book.mp3"));
+        var destinationRoot = Path.Combine(
+            Path.GetTempPath(),
+            "Metaroq.Execution.Destination.Tests",
+            Guid.NewGuid().ToString("N"));
+        fixture.Files.AddDirectory(destinationRoot);
+
+        var result = await fixture.Service.ExecuteApprovedAsync(
+            fixture.SourceId,
+            fixture.Root,
+            destinationRoot,
+            [fixture.Candidate]);
+
+        Assert.True(result.Succeeded);
+        Assert.False(fixture.Files.FileExists(Path.Combine(fixture.Root, "Incoming\\Book.mp3")));
+        Assert.True(fixture.Files.FileExists(Path.Combine(
+            destinationRoot,
+            "Author\\Book\\Author - Book.mp3")));
+        Assert.Equal(Path.GetFullPath(fixture.Root), fixture.Journal.Latest?.SourceRoot);
+        Assert.Equal(Path.GetFullPath(destinationRoot), fixture.Journal.Latest?.DestinationRoot);
+    }
+
+    [Fact]
     public async Task ExecuteApproved_IgnoresApprovedNoChangePlans()
     {
         var fixture = CreateFixture(("Incoming\\Book.mp3", "Author\\Book\\Author - Book.mp3"));
@@ -169,6 +194,31 @@ public sealed class AudiobookBatchExecutionServiceTests
     }
 
     [Fact]
+    public async Task ExecuteApproved_LeavesUnavailableOptionalMetadataUnset()
+    {
+        var fixture = CreateFixture(("Incoming\\Book.mp3", "Author\\Book\\Author - Book.mp3"));
+        var candidate = fixture.Candidate with
+        {
+            OrganisationProposal = fixture.Candidate.OrganisationProposal! with
+            {
+                FirstPublishedYear = null,
+                GenreCategory = "Uncategorised",
+                SeriesName = null
+            }
+        };
+
+        var result = await fixture.Service.ExecuteApprovedAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [candidate]);
+
+        Assert.True(result.Succeeded);
+        Assert.Null(fixture.Metadata.LastUpdate?.Genre);
+        Assert.Null(fixture.Metadata.LastUpdate?.Year);
+        Assert.Null(fixture.Metadata.LastUpdate?.SeriesName);
+    }
+
+    [Fact]
     public async Task ExecuteApproved_EmbedsArtworkAndCreatesPlexCoverWithoutOverwriting()
     {
         var fixture = CreateFixture(("Incoming\\Book.mp3", "Author\\Book\\Author - Book.mp3"));
@@ -241,6 +291,40 @@ public sealed class AudiobookBatchExecutionServiceTests
         Assert.True(fixture.Files.FileExists(source));
         Assert.False(fixture.Files.FileExists(destination));
         Assert.Equal(AudiobookExecutionOperationStatus.RolledBack, fixture.Journal.Latest.Operations[0].Status);
+    }
+
+    [Fact]
+    public async Task RecoverInterrupted_UsesRootsRecordedBeforeConfigurationChanged()
+    {
+        var fixture = CreateFixture(("Incoming\\Book.mp3", "Author\\Book\\Author - Book.mp3"));
+        var destinationRoot = Path.Combine(
+            Path.GetTempPath(),
+            "Metaroq.Recorded.Destination.Tests",
+            Guid.NewGuid().ToString("N"));
+        fixture.Files.AddDirectory(destinationRoot);
+        var source = Path.Combine(fixture.Root, "Incoming\\Book.mp3");
+        var destination = Path.Combine(destinationRoot, "Author\\Book\\Author - Book.mp3");
+        fixture.Files.Move(source, destination);
+        var operation = new AudiobookExecutionOperationEntry(
+            Guid.NewGuid(), 0, "plan-1", "signature", Guid.NewGuid(),
+            "Incoming\\Book.mp3", "Author\\Book\\Author - Book.mp3",
+            AudiobookFileOperationKind.MoveAndRename,
+            AudiobookExecutionOperationStatus.Running,
+            100,
+            TestFileOperator.ModifiedAtUtc);
+        fixture.Journal.Latest = new AudiobookExecutionRunEntry(
+            Guid.NewGuid(), fixture.SourceId, AudiobookExecutionRunStatus.Running,
+            1, 0, 0, DateTime.UtcNow, DateTime.UtcNow, null, null, [operation],
+            fixture.Root, destinationRoot);
+
+        var result = await fixture.Service.RecoverInterruptedAsync(
+            fixture.SourceId,
+            Path.Combine(Path.GetTempPath(), "Changed source"),
+            Path.Combine(Path.GetTempPath(), "Changed destination"));
+
+        Assert.Equal(AudiobookExecutionRunStatus.FailedRolledBack, result.Status);
+        Assert.True(fixture.Files.FileExists(source));
+        Assert.False(fixture.Files.FileExists(destination));
     }
 
     [Fact]
@@ -421,6 +505,10 @@ public sealed class AudiobookBatchExecutionServiceTests
         public static readonly DateTime ModifiedAtUtc = new(2026, 8, 19, 12, 0, 0, DateTimeKind.Utc);
         private readonly Dictionary<string, AudiobookFileSnapshot> _files =
             new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _directories = new(StringComparer.OrdinalIgnoreCase)
+        {
+            root
+        };
         private int _moveCount;
 
         public int? FailMoveNumber { get; set; }
@@ -428,9 +516,10 @@ public sealed class AudiobookBatchExecutionServiceTests
         public int SidecarWriteCount { get; private set; }
 
         public void AddFile(string path) => _files[path] = new AudiobookFileSnapshot(100, ModifiedAtUtc);
+        public void AddDirectory(string path) => _directories.Add(path);
         public void ResetMoveCount() => _moveCount = 0;
         public bool FileExists(string path) => _files.ContainsKey(path);
-        public bool DirectoryExists(string path) => string.Equals(path, root, StringComparison.OrdinalIgnoreCase);
+        public bool DirectoryExists(string path) => _directories.Contains(path);
         public AudiobookFileSnapshot GetSnapshot(string path) => _files[path];
         public void CreateDirectory(string path) { }
 

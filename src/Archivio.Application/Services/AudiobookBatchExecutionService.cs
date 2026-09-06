@@ -10,14 +10,30 @@ public sealed class AudiobookBatchExecutionService(
     IAudiobookCoverArtworkProvider coverArtworkProvider,
     IDatabaseBackupService databaseBackupService) : IAudiobookBatchExecutionService
 {
-    public async Task<AudiobookExecutionResult> ExecuteApprovedAsync(
+    public Task<AudiobookExecutionResult> ExecuteApprovedAsync(
         Guid librarySourceId,
         string libraryRoot,
         IReadOnlyList<AudiobookCandidateGroup> candidates,
         IProgress<AudiobookExecutionProgress>? progress = null,
+        CancellationToken cancellationToken = default) =>
+        ExecuteApprovedAsync(
+            librarySourceId,
+            libraryRoot,
+            libraryRoot,
+            candidates,
+            progress,
+            cancellationToken);
+
+    public async Task<AudiobookExecutionResult> ExecuteApprovedAsync(
+        Guid librarySourceId,
+        string sourceRoot,
+        string destinationRoot,
+        IReadOnlyList<AudiobookCandidateGroup> candidates,
+        IProgress<AudiobookExecutionProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(libraryRoot);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceRoot);
+        ArgumentException.ThrowIfNullOrWhiteSpace(destinationRoot);
         ArgumentNullException.ThrowIfNull(candidates);
 
         var latest = await journalStore.LoadLatestAsync(librarySourceId, cancellationToken);
@@ -30,7 +46,8 @@ public sealed class AudiobookBatchExecutionService(
         }
 
         var preparation = await PrepareOperationsAsync(
-            libraryRoot,
+            sourceRoot,
+            destinationRoot,
             candidates,
             latest,
             cancellationToken);
@@ -69,7 +86,9 @@ public sealed class AudiobookBatchExecutionService(
             now,
             null,
             null,
-            prepared.Select(item => item.Entry).ToList());
+            prepared.Select(item => item.Entry).ToList(),
+            Path.GetFullPath(sourceRoot),
+            Path.GetFullPath(destinationRoot));
         await journalStore.CreateAsync(run, cancellationToken);
         await journalStore.UpdateRunAsync(
             run.Id,
@@ -211,11 +230,13 @@ public sealed class AudiobookBatchExecutionService(
 
     public async Task<AudiobookExecutionResult> RecoverInterruptedAsync(
         Guid librarySourceId,
-        string libraryRoot,
+        string sourceRoot,
+        string destinationRoot,
         IProgress<AudiobookExecutionProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(libraryRoot);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceRoot);
+        ArgumentException.ThrowIfNullOrWhiteSpace(destinationRoot);
         var run = await journalStore.LoadLatestAsync(librarySourceId, cancellationToken);
         if (run?.Status is not (AudiobookExecutionRunStatus.Prepared or
             AudiobookExecutionRunStatus.Running or
@@ -227,7 +248,9 @@ public sealed class AudiobookBatchExecutionService(
                 "There is no interrupted execution to recover.");
         }
 
-        var root = Path.GetFullPath(libraryRoot)
+        var sourceBase = Path.GetFullPath(run.SourceRoot ?? sourceRoot)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var destinationBase = Path.GetFullPath(run.DestinationRoot ?? destinationRoot)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var rolledBack = 0;
         var failed = 0;
@@ -236,8 +259,11 @@ public sealed class AudiobookBatchExecutionService(
         {
             cancellationToken.ThrowIfCancellationRequested();
             var operation = operations[index];
-            var source = ResolveInsideRoot(root, operation.SourceRelativePath, "source");
-            var destination = ResolveInsideRoot(root, operation.DestinationRelativePath, "destination");
+            var source = ResolveInsideRoot(sourceBase, operation.SourceRelativePath, "source");
+            var destination = ResolveInsideRoot(
+                destinationBase,
+                operation.DestinationRelativePath,
+                "destination");
             progress?.Report(new AudiobookExecutionProgress(
                 index,
                 operations.Count,
@@ -322,22 +348,43 @@ public sealed class AudiobookBatchExecutionService(
             message);
     }
 
+    public Task<AudiobookExecutionResult> RecoverInterruptedAsync(
+        Guid librarySourceId,
+        string libraryRoot,
+        IProgress<AudiobookExecutionProgress>? progress = null,
+        CancellationToken cancellationToken = default) =>
+        RecoverInterruptedAsync(
+            librarySourceId,
+            libraryRoot,
+            libraryRoot,
+            progress,
+            cancellationToken);
+
     public Task<AudiobookExecutionRunEntry?> LoadLatestAsync(
         Guid librarySourceId,
         CancellationToken cancellationToken = default) =>
         journalStore.LoadLatestAsync(librarySourceId, cancellationToken);
 
     private async Task<PreparationResult> PrepareOperationsAsync(
-        string libraryRoot,
+        string sourceRoot,
+        string destinationRoot,
         IReadOnlyList<AudiobookCandidateGroup> candidates,
         AudiobookExecutionRunEntry? latestRun,
         CancellationToken cancellationToken)
     {
-        var root = Path.GetFullPath(libraryRoot)
+        var sourceBase = Path.GetFullPath(sourceRoot)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (!fileOperator.DirectoryExists(root))
+        var destinationBase = Path.GetFullPath(destinationRoot)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (!fileOperator.DirectoryExists(sourceBase))
         {
-            throw new DirectoryNotFoundException($"The library folder is unavailable: {root}");
+            throw new DirectoryNotFoundException($"The library source folder is unavailable: {sourceBase}");
+        }
+
+        if (!fileOperator.DirectoryExists(destinationBase))
+        {
+            throw new DirectoryNotFoundException(
+                $"The library destination folder is unavailable: {destinationBase}");
         }
 
         var approvedPlans = candidates
@@ -411,8 +458,11 @@ public sealed class AudiobookBatchExecutionService(
                 throw new InvalidOperationException($"Plan {item.Plan.CanonicalDisplay} has no safety signature.");
             }
 
-            var source = ResolveInsideRoot(root, item.Operation.SourceRelativePath, "source");
-            var destination = ResolveInsideRoot(root, item.Operation.DestinationRelativePath, "destination");
+            var source = ResolveInsideRoot(sourceBase, item.Operation.SourceRelativePath, "source");
+            var destination = ResolveInsideRoot(
+                destinationBase,
+                item.Operation.DestinationRelativePath,
+                "destination");
             if (!fileOperator.FileExists(source))
             {
                 var completedOperation = completedJournalOperations.FirstOrDefault(operation =>
@@ -670,11 +720,17 @@ public sealed class AudiobookBatchExecutionService(
         var title = trackCount == 1
             ? proposal.CanonicalTitle
             : $"{proposal.CanonicalTitle} - Track {trackNumber:000}";
+        var genre = string.Equals(
+            proposal.GenreCategory,
+            "Uncategorised",
+            StringComparison.Ordinal)
+            ? null
+            : proposal.GenreCategory;
         return new AudiobookTagUpdate(
             title,
             proposal.CanonicalAuthor,
             proposal.CanonicalTitle,
-            proposal.GenreCategory,
+            genre,
             proposal.FirstPublishedYear is null ? null : (uint)proposal.FirstPublishedYear.Value,
             (uint)trackNumber,
             (uint)trackCount,
