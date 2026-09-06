@@ -92,6 +92,7 @@ internal sealed class AudiobookAnalysisStore(
                 foreach (var partPayload in payload.Parts)
                 {
                     if (!currentItems.TryGetValue(partPayload.MediaItemId, out var mediaItem) ||
+                        mediaItem.IsMissing ||
                         !cache.TryGetValue(partPayload.MediaItemId, out var cacheEntity) ||
                         mediaItem.SizeBytes != cacheEntity.SizeBytes ||
                         mediaItem.ModifiedAtUtc != cacheEntity.ModifiedAtUtc)

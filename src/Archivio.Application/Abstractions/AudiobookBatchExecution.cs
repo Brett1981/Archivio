@@ -34,7 +34,8 @@ public sealed record AudiobookExecutionOperationEntry(
     AudiobookExecutionOperationStatus Status,
     long SourceSizeBytes,
     DateTime SourceModifiedAtUtc,
-    string? ErrorMessage = null);
+    string? ErrorMessage = null,
+    string? OriginalMetadataJson = null);
 
 public sealed record AudiobookExecutionRunEntry(
     Guid Id,

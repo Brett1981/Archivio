@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Windows.Data;
 using Archivio.Application.Abstractions;
 using Archivio.Domain;
@@ -74,11 +75,26 @@ public sealed partial class MainWindowViewModel
     public int BatchReadyCount => AudiobookCandidates.Count(candidate =>
         candidate.IsPrimaryOrganisationPlan &&
         candidate.BatchPlan?.ValidationStatus == AudiobookBatchValidationStatus.Ready);
+    public int BulkApprovalEligibleCount => AudiobookCandidates.Count(candidate => candidate.CanBulkApprove);
+    public int IndividualApprovalRequiredCount => AudiobookCandidates.Count(candidate =>
+        candidate.IsIndividualApprovalPending);
+    public string ApproveSafeBatchLabel => $"Bulk approve safe single files ({BulkApprovalEligibleCount:N0})";
     public int BatchApprovedCount => AudiobookCandidates.Count(candidate =>
         candidate.IsPrimaryOrganisationPlan &&
         candidate.BatchPlan?.Decision == AudiobookBatchDecision.Approved);
     public int BatchBlockedCount => AudiobookCandidates.Count(candidate =>
         candidate.IsPrimaryOrganisationPlan && candidate.BatchPlan?.IsBlocked == true);
+    public int AlreadyOrganisedPlanCount => AudiobookCandidates.Count(candidate =>
+        candidate.IsPrimaryOrganisationPlan &&
+        candidate.BatchPlan?.ValidationStatus == AudiobookBatchValidationStatus.NoChange);
+    public int MetadataReviewPlanCount => AudiobookCandidates.Count(candidate =>
+        candidate.IsPrimaryOrganisationPlan &&
+        candidate.BatchPlan?.ValidationStatus == AudiobookBatchValidationStatus.ReviewRequired);
+    public int BatchConflictCount => AudiobookCandidates.Count(candidate =>
+        candidate.IsPrimaryOrganisationPlan &&
+        candidate.BatchPlan?.ValidationStatus == AudiobookBatchValidationStatus.Conflict);
+    public IReadOnlyList<string> AudiobookGenreCategories =>
+        global::Archivio.Application.Abstractions.AudiobookGenreCategories.All;
     public int BatchExecutableOperationCount => AudiobookCandidates
         .Select(candidate => candidate.BatchPlan)
         .Where(plan => plan is
@@ -97,14 +113,82 @@ public sealed partial class MainWindowViewModel
     [NotifyCanExecuteChangedFor(nameof(ApproveSelectedBatchCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeferSelectedBatchCommand))]
     [NotifyCanExecuteChangedFor(nameof(ResetSelectedBatchDecisionCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApplySelectedGenreOverrideCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResetSelectedGenreOverrideCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApplySelectedIdentityOverrideCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResetSelectedIdentityOverrideCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SeparateSelectedCollectionCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApplySelectedSeriesOverrideCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResetSelectedSeriesOverrideCommand))]
     private AudiobookCandidateGroup? _selectedAudiobookCandidate;
+
+    [ObservableProperty]
+    private IReadOnlyList<AudiobookCandidatePart> _selectedAudiobookSourceEvidence = [];
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(PlaySelectedAudiobookSourceCommand))]
+    private AudiobookCandidatePart? _selectedAudiobookSourcePart;
+
+    [ObservableProperty]
+    private string _audiobookPreviewStatus =
+        "Select a source file to inspect its filename and embedded metadata.";
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ApplySelectedIdentityOverrideCommand))]
+    private string _selectedAudiobookAuthorOverride = string.Empty;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ApplySelectedIdentityOverrideCommand))]
+    private string _selectedAudiobookTitleOverride = string.Empty;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ApplySelectedGenreOverrideCommand))]
+    private string? _selectedAudiobookGenreOverride;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ApplySelectedSeriesOverrideCommand))]
+    private string _selectedAudiobookSeriesName = string.Empty;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ApplySelectedSeriesOverrideCommand))]
+    private string _selectedAudiobookSeriesPosition = string.Empty;
+
+    [ObservableProperty]
+    private string _audiobookIdentityCorrectionStatus =
+        "Confirm the complete author and audiobook title; no files will be changed.";
+
+    [ObservableProperty]
+    private string _audiobookReviewCorrectionStatus =
+        "Choose a genre to correct this audiobook plan; no files will be changed.";
+
+    [ObservableProperty]
+    private string _audiobookCollectionCorrectionStatus =
+        "Choose separate books when each source file is a complete audiobook.";
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ApplySelectedGenreOverrideCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResetSelectedGenreOverrideCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApplySelectedIdentityOverrideCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResetSelectedIdentityOverrideCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SeparateSelectedCollectionCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApplySelectedSeriesOverrideCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResetSelectedSeriesOverrideCommand))]
+    private bool _isAudiobookReviewCorrectionRunning;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(AnalyseAudiobooksCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelAudiobookAnalysisCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApproveSafeBatchCommand))]
     [NotifyCanExecuteChangedFor(nameof(ApproveSelectedBatchCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeferSelectedBatchCommand))]
     [NotifyCanExecuteChangedFor(nameof(ResetSelectedBatchDecisionCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApplySelectedGenreOverrideCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResetSelectedGenreOverrideCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApplySelectedIdentityOverrideCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResetSelectedIdentityOverrideCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SeparateSelectedCollectionCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApplySelectedSeriesOverrideCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResetSelectedSeriesOverrideCommand))]
     [NotifyCanExecuteChangedFor(nameof(ExecuteApprovedBatchCommand))]
     private bool _isAudiobookAnalysisRunning;
 
@@ -143,6 +227,14 @@ public sealed partial class MainWindowViewModel
     [NotifyCanExecuteChangedFor(nameof(StartScanCommand))]
     [NotifyCanExecuteChangedFor(nameof(SaveCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeleteCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApplySelectedGenreOverrideCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResetSelectedGenreOverrideCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApplySelectedIdentityOverrideCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResetSelectedIdentityOverrideCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SeparateSelectedCollectionCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApplySelectedSeriesOverrideCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResetSelectedSeriesOverrideCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApproveSafeBatchCommand))]
     private bool _isAudiobookExecutionRunning;
 
     [ObservableProperty]
@@ -190,9 +282,56 @@ public sealed partial class MainWindowViewModel
     {
         _audiobookCandidatesView = null;
         OnPropertyChanged(nameof(AudiobookCandidatesView));
-        OnPropertyChanged(nameof(VisibleAudiobookCandidateCount));
-        OnPropertyChanged(nameof(VisibleAudiobookReviewItemCount));
-        OnPropertyChanged(nameof(AudiobookReviewCountLabel));
+        NotifyAudiobookSummaryChanged();
+    }
+
+    partial void OnSelectedAudiobookCandidateChanged(AudiobookCandidateGroup? value)
+    {
+        var proposal = value?.OrganisationProposal;
+        SelectedAudiobookSourceEvidence = proposal is null
+            ? value?.Parts ?? []
+            : AudiobookCandidates
+                .Where(candidate => string.Equals(
+                    candidate.OrganisationProposal?.PlanKey,
+                    proposal.PlanKey,
+                    StringComparison.Ordinal))
+                .SelectMany(candidate => candidate.Parts)
+                .GroupBy(part => part.MediaItem.Id)
+                .Select(group => group.First())
+                .OrderBy(part => part.Metadata.TrackNumber ?? uint.MaxValue)
+                .ThenBy(part => part.Sequence)
+                .ThenBy(part => part.MediaItem.RelativePath, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        SelectedAudiobookSourcePart = SelectedAudiobookSourceEvidence.FirstOrDefault();
+        AudiobookPreviewStatus = SelectedAudiobookSourcePart is null
+            ? "No source-file evidence is available for this plan."
+            : "Review the original evidence below or play the selected source file.";
+        SelectedAudiobookAuthorOverride = proposal?.CanonicalAuthor == "Unknown Author"
+            ? string.Empty
+            : proposal?.CanonicalAuthor ?? string.Empty;
+        SelectedAudiobookTitleOverride = proposal?.CanonicalTitle ?? string.Empty;
+        SelectedAudiobookGenreOverride = proposal?.GenreCategory == "Uncategorised"
+            ? null
+            : proposal?.GenreCategory;
+        SelectedAudiobookSeriesName = proposal?.SeriesName ?? string.Empty;
+        SelectedAudiobookSeriesPosition = proposal?.SeriesPosition?.ToString() ?? string.Empty;
+        AudiobookIdentityCorrectionStatus = proposal?.UsesManualAuthor == true ||
+                                            proposal?.UsesManualTitle == true
+            ? $"Author and title confirmed by you as {proposal.CanonicalAuthor} — {proposal.CanonicalTitle}."
+            : "Confirm the complete author and audiobook title; no files will be changed.";
+        AudiobookReviewCorrectionStatus = proposal?.UsesManualGenre == true
+            ? $"Genre confirmed by you as {proposal.GenreCategory}."
+            : "Choose a genre to correct this audiobook plan; no files will be changed.";
+        AudiobookCollectionCorrectionStatus = proposal?.IsSeparateBookPlan == true
+            ? $"This is one book{(string.IsNullOrWhiteSpace(proposal.SeriesName) ? string.Empty : $" in {proposal.SeriesDisplay}")}."
+            : "Choose separate books when each source file is a complete audiobook.";
+        ApplySelectedIdentityOverrideCommand.NotifyCanExecuteChanged();
+        ResetSelectedIdentityOverrideCommand.NotifyCanExecuteChanged();
+        ApplySelectedGenreOverrideCommand.NotifyCanExecuteChanged();
+        ResetSelectedGenreOverrideCommand.NotifyCanExecuteChanged();
+        SeparateSelectedCollectionCommand.NotifyCanExecuteChanged();
+        ApplySelectedSeriesOverrideCommand.NotifyCanExecuteChanged();
+        ResetSelectedSeriesOverrideCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnAudiobookSearchTextChanged(string value) => RefreshAudiobookCandidatesView();
@@ -238,6 +377,337 @@ public sealed partial class MainWindowViewModel
 
     [RelayCommand]
     private void ExitReviewFocus() => IsReviewFocusMode = false;
+
+    private bool CanPlaySelectedAudiobookSource() =>
+        SelectedAudiobookSourcePart?.MediaItem.IsMissing == false;
+
+    [RelayCommand(CanExecute = nameof(CanPlaySelectedAudiobookSource))]
+    private async Task PlaySelectedAudiobookSourceAsync()
+    {
+        var part = SelectedAudiobookSourcePart;
+        if (part is null)
+        {
+            return;
+        }
+
+        AudiobookPreviewStatus = $"Opening {part.MediaItem.FileName} in your default audio player...";
+        try
+        {
+            await _audioPreviewService.PlayAsync(part.MediaItem.FullPath);
+            AudiobookPreviewStatus = $"Opened {part.MediaItem.FileName} in your default audio player.";
+        }
+        catch (Exception exception)
+        {
+            AudiobookPreviewStatus = $"The source file could not be played: {exception.Message}";
+        }
+    }
+
+    private bool CanSeparateSelectedCollection() =>
+        !IsAudiobookAnalysisRunning &&
+        !IsAudiobookExecutionRunning &&
+        !IsAudiobookReviewCorrectionRunning &&
+        SelectedSource is not null &&
+        SelectedAudiobookCandidate?.IsPrimaryOrganisationPlan == true &&
+        SelectedAudiobookCandidate.OrganisationProposal is
+        {
+            SourceFileCount: > 1,
+            IsSeparateBookPlan: false
+        };
+
+    [RelayCommand(CanExecute = nameof(CanSeparateSelectedCollection))]
+    private async Task SeparateSelectedCollectionAsync()
+    {
+        var source = SelectedSource;
+        var selected = SelectedAudiobookCandidate;
+        var plan = selected?.OrganisationProposal;
+        if (source is null || selected is null || plan is null)
+        {
+            return;
+        }
+
+        var selectedMediaItemId = SelectedAudiobookSourcePart?.MediaItem.Id ??
+                                  selected.Parts.FirstOrDefault()?.MediaItem.Id;
+        IsAudiobookReviewCorrectionRunning = true;
+        AudiobookCollectionCorrectionStatus =
+            $"Separating {plan.SourceFileCount:N0} source files into independent audiobook plans and checking each title online...";
+        try
+        {
+            var updated = await _audiobookOrganisationService.SetCollectionOverrideAsync(
+                source.Id,
+                AudiobookCandidates.ToList(),
+                plan.PlanKey,
+                AudiobookCollectionHandling.SeparateBooks,
+                SelectedAudiobookAuthorOverride,
+                SelectedAudiobookSeriesName);
+            updated = await EnrichWithOnlineMetadataAsync(source.Id, updated, CancellationToken.None);
+            updated = await _audiobookOrganisationService.PrepareProposalsAsync(
+                source.Id,
+                updated,
+                CancellationToken.None);
+            updated = await _audiobookBatchPlanningService.PrepareBatchAsync(
+                source.Id,
+                source.Path,
+                updated,
+                MediaItems.ToList());
+            if (SelectedSource?.Id != source.Id)
+            {
+                return;
+            }
+
+            AudiobookCandidates = new ObservableCollection<AudiobookCandidateGroup>(updated);
+            SelectedAudiobookCandidate = AudiobookCandidates.FirstOrDefault(candidate =>
+                selectedMediaItemId is not null &&
+                candidate.Parts.Any(part => part.MediaItem.Id == selectedMediaItemId)) ??
+                FirstAudiobookReviewItem();
+            NotifyAudiobookSummaryChanged();
+            UpdateBatchPlanningStatus(updated, "Collection separated and revalidated");
+            AudiobookCollectionCorrectionStatus =
+                $"Separated into {plan.SourceFileCount:N0} audiobook plans; each title was checked independently.";
+            OrganisationStatus = AudiobookCollectionCorrectionStatus;
+        }
+        catch (Exception exception)
+        {
+            AudiobookCollectionCorrectionStatus = $"The collection could not be separated: {exception.Message}";
+        }
+        finally
+        {
+            IsAudiobookReviewCorrectionRunning = false;
+        }
+    }
+
+    private bool CanApplySelectedSeriesOverride() =>
+        !IsAudiobookAnalysisRunning &&
+        !IsAudiobookExecutionRunning &&
+        !IsAudiobookReviewCorrectionRunning &&
+        SelectedSource is not null &&
+        SelectedAudiobookCandidate?.IsPrimaryOrganisationPlan == true &&
+        !string.IsNullOrWhiteSpace(SelectedAudiobookSeriesName) &&
+        (string.IsNullOrWhiteSpace(SelectedAudiobookSeriesPosition) ||
+         int.TryParse(SelectedAudiobookSeriesPosition, out var position) && position > 0);
+
+    [RelayCommand(CanExecute = nameof(CanApplySelectedSeriesOverride))]
+    private Task ApplySelectedSeriesOverrideAsync() => SetSelectedSeriesOverrideAsync(
+        SelectedAudiobookSeriesName,
+        int.TryParse(SelectedAudiobookSeriesPosition, out var position) ? position : null);
+
+    private bool CanResetSelectedSeriesOverride() =>
+        !IsAudiobookAnalysisRunning &&
+        !IsAudiobookExecutionRunning &&
+        !IsAudiobookReviewCorrectionRunning &&
+        SelectedSource is not null &&
+        SelectedAudiobookCandidate?.OrganisationProposal?.SeriesName is not null;
+
+    [RelayCommand(CanExecute = nameof(CanResetSelectedSeriesOverride))]
+    private Task ResetSelectedSeriesOverrideAsync() => SetSelectedSeriesOverrideAsync(null, null);
+
+    private async Task SetSelectedSeriesOverrideAsync(string? seriesName, int? seriesPosition)
+    {
+        var source = SelectedSource;
+        var selected = SelectedAudiobookCandidate;
+        var plan = selected?.OrganisationProposal;
+        if (source is null || selected is null || plan is null)
+        {
+            return;
+        }
+
+        var selectedCandidateKey = selected.CandidateKey;
+        IsAudiobookReviewCorrectionRunning = true;
+        AudiobookCollectionCorrectionStatus = seriesName is null
+            ? "Clearing the series details and revalidating the plan..."
+            : "Saving the series details and revalidating the plan...";
+        try
+        {
+            var updated = await _audiobookOrganisationService.SetSeriesOverrideAsync(
+                source.Id,
+                AudiobookCandidates.ToList(),
+                plan.PlanKey,
+                seriesName,
+                seriesPosition);
+            updated = await _audiobookBatchPlanningService.PrepareBatchAsync(
+                source.Id,
+                source.Path,
+                updated,
+                MediaItems.ToList());
+            AudiobookCandidates = new ObservableCollection<AudiobookCandidateGroup>(updated);
+            SelectedAudiobookCandidate = AudiobookCandidates.FirstOrDefault(candidate =>
+                candidate.CandidateKey == selectedCandidateKey);
+            NotifyAudiobookSummaryChanged();
+            UpdateBatchPlanningStatus(updated, "Series metadata updated");
+            AudiobookCollectionCorrectionStatus = seriesName is null
+                ? "Series details cleared; the plan has been revalidated."
+                : $"Series saved as {seriesName}{(seriesPosition is null ? string.Empty : $", book {seriesPosition}")}; the plan has been revalidated.";
+            OrganisationStatus = AudiobookCollectionCorrectionStatus;
+        }
+        catch (Exception exception)
+        {
+            AudiobookCollectionCorrectionStatus = $"Series details could not be saved: {exception.Message}";
+        }
+        finally
+        {
+            IsAudiobookReviewCorrectionRunning = false;
+        }
+    }
+
+    private bool CanApplySelectedIdentityOverride() =>
+        !IsAudiobookAnalysisRunning &&
+        !IsAudiobookExecutionRunning &&
+        !IsAudiobookReviewCorrectionRunning &&
+        SelectedSource is not null &&
+        SelectedAudiobookCandidate?.IsPrimaryOrganisationPlan == true &&
+        SelectedAudiobookCandidate.OrganisationProposal is not null &&
+        !string.IsNullOrWhiteSpace(SelectedAudiobookAuthorOverride) &&
+        !string.IsNullOrWhiteSpace(SelectedAudiobookTitleOverride);
+
+    [RelayCommand(CanExecute = nameof(CanApplySelectedIdentityOverride))]
+    private Task ApplySelectedIdentityOverrideAsync() => SetSelectedIdentityOverrideAsync(
+        SelectedAudiobookAuthorOverride,
+        SelectedAudiobookTitleOverride);
+
+    private bool CanResetSelectedIdentityOverride() =>
+        !IsAudiobookAnalysisRunning &&
+        !IsAudiobookExecutionRunning &&
+        !IsAudiobookReviewCorrectionRunning &&
+        SelectedSource is not null &&
+        SelectedAudiobookCandidate?.OrganisationProposal is
+        {
+            UsesManualAuthor: true
+        } or
+        {
+            UsesManualTitle: true
+        };
+
+    [RelayCommand(CanExecute = nameof(CanResetSelectedIdentityOverride))]
+    private Task ResetSelectedIdentityOverrideAsync() => SetSelectedIdentityOverrideAsync(null, null);
+
+    private async Task SetSelectedIdentityOverrideAsync(string? canonicalAuthor, string? canonicalTitle)
+    {
+        var source = SelectedSource;
+        var selected = SelectedAudiobookCandidate;
+        var plan = selected?.OrganisationProposal;
+        if (source is null || selected is null || plan is null)
+        {
+            return;
+        }
+
+        var selectedCandidateKey = selected.CandidateKey;
+        IsAudiobookReviewCorrectionRunning = true;
+        AudiobookIdentityCorrectionStatus = canonicalAuthor is null && canonicalTitle is null
+            ? "Restoring Metaroq's suggested author and title..."
+            : "Confirming the author and title and revalidating the plan...";
+        try
+        {
+            var updated = await _audiobookOrganisationService.SetIdentityOverrideAsync(
+                source.Id,
+                AudiobookCandidates.ToList(),
+                plan.PlanKey,
+                canonicalAuthor,
+                canonicalTitle);
+            updated = await _audiobookBatchPlanningService.PrepareBatchAsync(
+                source.Id,
+                source.Path,
+                updated,
+                MediaItems.ToList());
+            if (SelectedSource?.Id != source.Id)
+            {
+                return;
+            }
+
+            AudiobookCandidates = new ObservableCollection<AudiobookCandidateGroup>(updated);
+            SelectedAudiobookCandidate = AudiobookCandidates.FirstOrDefault(candidate =>
+                candidate.CandidateKey == selectedCandidateKey);
+            NotifyAudiobookSummaryChanged();
+            UpdateBatchPlanningStatus(updated, "Review correction applied");
+            AudiobookIdentityCorrectionStatus = canonicalAuthor is null && canonicalTitle is null
+                ? "Metaroq's suggested author and title have been restored and the plan revalidated."
+                : $"Author and title confirmed as {canonicalAuthor?.Trim()} — {canonicalTitle?.Trim()}; the plan has been revalidated.";
+            OrganisationStatus = AudiobookIdentityCorrectionStatus;
+        }
+        catch (Exception exception)
+        {
+            AudiobookIdentityCorrectionStatus = $"Author and title could not be saved: {exception.Message}";
+        }
+        finally
+        {
+            IsAudiobookReviewCorrectionRunning = false;
+        }
+    }
+
+    private bool CanApplySelectedGenreOverride() =>
+        !IsAudiobookAnalysisRunning &&
+        !IsAudiobookExecutionRunning &&
+        !IsAudiobookReviewCorrectionRunning &&
+        SelectedSource is not null &&
+        SelectedAudiobookCandidate?.IsPrimaryOrganisationPlan == true &&
+        SelectedAudiobookCandidate.OrganisationProposal is not null &&
+        SelectedAudiobookGenreOverride is not null &&
+        global::Archivio.Application.Abstractions.AudiobookGenreCategories.Contains(
+            SelectedAudiobookGenreOverride);
+
+    [RelayCommand(CanExecute = nameof(CanApplySelectedGenreOverride))]
+    private Task ApplySelectedGenreOverrideAsync() =>
+        SetSelectedGenreOverrideAsync(SelectedAudiobookGenreOverride);
+
+    private bool CanResetSelectedGenreOverride() =>
+        !IsAudiobookAnalysisRunning &&
+        !IsAudiobookExecutionRunning &&
+        !IsAudiobookReviewCorrectionRunning &&
+        SelectedSource is not null &&
+        SelectedAudiobookCandidate?.OrganisationProposal?.UsesManualGenre == true;
+
+    [RelayCommand(CanExecute = nameof(CanResetSelectedGenreOverride))]
+    private Task ResetSelectedGenreOverrideAsync() => SetSelectedGenreOverrideAsync(null);
+
+    private async Task SetSelectedGenreOverrideAsync(string? genreCategory)
+    {
+        var source = SelectedSource;
+        var selected = SelectedAudiobookCandidate;
+        var plan = selected?.OrganisationProposal;
+        if (source is null || selected is null || plan is null)
+        {
+            return;
+        }
+
+        var selectedCandidateKey = selected.CandidateKey;
+        IsAudiobookReviewCorrectionRunning = true;
+        AudiobookReviewCorrectionStatus = genreCategory is null
+            ? "Restoring Metaroq's suggested genre..."
+            : $"Confirming {genreCategory} and revalidating the plan...";
+        try
+        {
+            var updated = await _audiobookOrganisationService.SetGenreOverrideAsync(
+                source.Id,
+                AudiobookCandidates.ToList(),
+                plan.PlanKey,
+                genreCategory);
+            updated = await _audiobookBatchPlanningService.PrepareBatchAsync(
+                source.Id,
+                source.Path,
+                updated,
+                MediaItems.ToList());
+            if (SelectedSource?.Id != source.Id)
+            {
+                return;
+            }
+
+            AudiobookCandidates = new ObservableCollection<AudiobookCandidateGroup>(updated);
+            SelectedAudiobookCandidate = AudiobookCandidates.FirstOrDefault(candidate =>
+                candidate.CandidateKey == selectedCandidateKey);
+            NotifyAudiobookSummaryChanged();
+            UpdateBatchPlanningStatus(updated, "Review correction applied");
+            AudiobookReviewCorrectionStatus = genreCategory is null
+                ? "Metaroq's suggested genre has been restored and the plan revalidated."
+                : $"Genre confirmed as {genreCategory}; the plan has been revalidated.";
+            OrganisationStatus = AudiobookReviewCorrectionStatus;
+        }
+        catch (Exception exception)
+        {
+            AudiobookReviewCorrectionStatus = $"Genre correction could not be saved: {exception.Message}";
+        }
+        finally
+        {
+            IsAudiobookReviewCorrectionRunning = false;
+        }
+    }
 
     private bool CanApproveSelectedBatch() =>
         !IsAudiobookAnalysisRunning &&
@@ -371,6 +841,14 @@ public sealed partial class MainWindowViewModel
                 return;
             }
 
+            var approvedPlanKeys = plans
+                .Select(plan => plan.PlanKey)
+                .ToList();
+            await ApplyBatchDecisionAsync(
+                approvedPlanKeys,
+                AudiobookBatchDecision.Pending,
+                "Cleared approvals after successful execution");
+
             IsAudiobookExecutionRunning = false;
             ResetAudiobookAnalysis();
             AudiobookExecutionStatus = $"{result.Message} Rescanning the catalogue...";
@@ -378,6 +856,27 @@ public sealed partial class MainWindowViewModel
             Status = IsScanRunning
                 ? "Approved file operations completed; refreshing the catalogue"
                 : "Approved file operations completed; start a scan to refresh the catalogue";
+        }
+        catch (FileNotFoundException exception)
+        {
+            var approvedPlanKeys = plans
+                .Select(plan => plan.PlanKey)
+                .ToList();
+            await ApplyBatchDecisionAsync(
+                approvedPlanKeys,
+                AudiobookBatchDecision.Pending,
+                "Reset approvals after stale catalogue preflight");
+
+            IsAudiobookExecutionRunning = false;
+            ResetAudiobookAnalysis();
+            ResetScanProgress();
+            IsScanRunning = await _backgroundScanService.QueueScanAsync(source.Id);
+
+            var unavailablePath = GetExecutionDisplayPath(source.Path, exception.FileName);
+            AudiobookExecutionStatus = IsScanRunning
+                ? $"Execution stopped safely before any files were changed. The catalogue referenced an unavailable source: {unavailablePath}. All approvals were reset and a catalogue refresh has started. Analyse again when the scan finishes."
+                : $"Execution stopped safely before any files were changed. The catalogue referenced an unavailable source: {unavailablePath}. All approvals were reset. Scan the catalogue, then analyse again.";
+            Status = AudiobookExecutionStatus;
         }
         catch (Exception exception)
         {
@@ -389,6 +888,26 @@ public sealed partial class MainWindowViewModel
             IsAudiobookExecutionRunning = false;
             _audiobookExecutionCancellation?.Dispose();
             _audiobookExecutionCancellation = null;
+        }
+    }
+
+    private static string GetExecutionDisplayPath(string libraryRoot, string? fullPath)
+    {
+        if (string.IsNullOrWhiteSpace(fullPath))
+        {
+            return "an unknown indexed path";
+        }
+
+        try
+        {
+            var relativePath = Path.GetRelativePath(libraryRoot, fullPath);
+            return relativePath.StartsWith("..", StringComparison.Ordinal)
+                ? fullPath
+                : relativePath;
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException)
+        {
+            return fullPath;
         }
     }
 
@@ -527,9 +1046,13 @@ public sealed partial class MainWindowViewModel
             NotifyAudiobookSummaryChanged();
             if (sourceId is not null && groups.Count > 0)
             {
-                var enrichedGroups = await EnrichWithOnlineMetadataAsync(
+                var lookupGroups = await PrepareOnlineLookupProposalsAsync(
                     sourceId.Value,
                     groups,
+                    cancellation.Token);
+                var enrichedGroups = await EnrichWithOnlineMetadataAsync(
+                    sourceId.Value,
+                    lookupGroups,
                     cancellation.Token);
                 if (SelectedSource?.Id != sourceId)
                 {
@@ -667,15 +1190,24 @@ public sealed partial class MainWindowViewModel
         }
     }
 
-    [RelayCommand]
+    private bool CanApproveSafeBatch() =>
+        !IsAudiobookAnalysisRunning &&
+        !IsAudiobookExecutionRunning &&
+        SelectedSource is not null &&
+        BulkApprovalEligibleCount > 0;
+
+    [RelayCommand(CanExecute = nameof(CanApproveSafeBatch))]
     private async Task ApproveSafeBatchAsync()
     {
         var keys = AudiobookCandidates
-            .Where(candidate => candidate.IsPrimaryOrganisationPlan &&
-                                candidate.BatchPlan?.ValidationStatus == AudiobookBatchValidationStatus.Ready)
+            .Where(candidate => candidate.CanBulkApprove)
             .Select(candidate => candidate.BatchPlan!.PlanKey)
+            .Distinct(StringComparer.Ordinal)
             .ToList();
-        await ApplyBatchDecisionAsync(keys, AudiobookBatchDecision.Approved, "Approved all safe plans");
+        await ApplyBatchDecisionAsync(
+            keys,
+            AudiobookBatchDecision.Approved,
+            $"Bulk approved {keys.Count:N0} clean 100% single-file plan{(keys.Count == 1 ? string.Empty : "s")}");
     }
 
     [RelayCommand]
@@ -745,9 +1277,45 @@ public sealed partial class MainWindowViewModel
             .Select(candidate => candidate.BatchPlan!)
             .ToList();
         var ready = primaryPlans.Count(plan => plan.ValidationStatus == AudiobookBatchValidationStatus.Ready);
+        var alreadyOrganised = primaryPlans.Count(plan =>
+            plan.ValidationStatus == AudiobookBatchValidationStatus.NoChange);
+        var metadataReview = primaryPlans.Count(plan =>
+            plan.ValidationStatus == AudiobookBatchValidationStatus.ReviewRequired);
+        var conflicts = primaryPlans.Count(plan =>
+            plan.ValidationStatus == AudiobookBatchValidationStatus.Conflict);
         var approved = primaryPlans.Count(plan => plan.Decision == AudiobookBatchDecision.Approved);
-        var blocked = primaryPlans.Count(plan => plan.IsBlocked);
-        BatchPlanningStatus = $"{prefix}: {ready:N0} safe · {approved:N0} approved · {blocked:N0} blocked · no files changed";
+        var bulkSafe = candidates.Count(candidate => candidate.CanBulkApprove);
+        var individualReview = candidates.Count(candidate =>
+            candidate.IsIndividualApprovalPending);
+        BatchPlanningStatus = $"{prefix}: {bulkSafe:N0} bulk-safe single files · " +
+                              $"{individualReview:N0} multi-file plans need individual approval · " +
+                              $"{ready:N0} execution-valid · {alreadyOrganised:N0} already organised · " +
+                              $"{metadataReview:N0} metadata review · {conflicts:N0} conflicts · " +
+                              $"{approved:N0} approved · no files changed";
+    }
+
+    private async Task<IReadOnlyList<AudiobookCandidateGroup>> PrepareOnlineLookupProposalsAsync(
+        Guid librarySourceId,
+        IReadOnlyList<AudiobookCandidateGroup> candidates,
+        CancellationToken cancellationToken)
+    {
+        OrganisationStatus = "Identifying logical audiobooks for online enrichment...";
+        try
+        {
+            return await _audiobookOrganisationService.PrepareProposalsAsync(
+                librarySourceId,
+                candidates,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            OrganisationStatus = $"Logical-book grouping unavailable for online enrichment: {exception.Message}";
+            return candidates;
+        }
     }
 
     private async Task<IReadOnlyList<AudiobookCandidateGroup>> PrepareOrganisationProposalsAsync(
@@ -861,7 +1429,7 @@ public sealed partial class MainWindowViewModel
                     : latest.Status switch
                     {
                         AudiobookExecutionRunStatus.Completed =>
-                            $"Last execution completed {latest.CompletedAtUtc?.ToLocalTime():g}: {latest.CompletedOperationCount:N0} files moved",
+                            $"Last execution completed {latest.CompletedAtUtc?.ToLocalTime():g}: {latest.CompletedOperationCount:N0} file updates completed",
                         AudiobookExecutionRunStatus.FailedRolledBack =>
                             $"Last execution stopped safely: {latest.RolledBackOperationCount:N0} moves rolled back",
                         AudiobookExecutionRunStatus.CancelledRolledBack =>
@@ -989,9 +1557,16 @@ public sealed partial class MainWindowViewModel
         OnPropertyChanged(nameof(GroupedOrganisationPlanCount));
         OnPropertyChanged(nameof(BatchPlanCount));
         OnPropertyChanged(nameof(BatchReadyCount));
+        OnPropertyChanged(nameof(BulkApprovalEligibleCount));
+        OnPropertyChanged(nameof(IndividualApprovalRequiredCount));
+        OnPropertyChanged(nameof(ApproveSafeBatchLabel));
         OnPropertyChanged(nameof(BatchApprovedCount));
         OnPropertyChanged(nameof(BatchBlockedCount));
+        OnPropertyChanged(nameof(AlreadyOrganisedPlanCount));
+        OnPropertyChanged(nameof(MetadataReviewPlanCount));
+        OnPropertyChanged(nameof(BatchConflictCount));
         OnPropertyChanged(nameof(BatchExecutableOperationCount));
+        ApproveSafeBatchCommand.NotifyCanExecuteChanged();
         ExecuteApprovedBatchCommand.NotifyCanExecuteChanged();
     }
 }

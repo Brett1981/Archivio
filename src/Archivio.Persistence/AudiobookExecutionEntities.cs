@@ -30,5 +30,6 @@ internal sealed class AudiobookExecutionOperationEntity
     public long SourceSizeBytes { get; set; }
     public DateTime SourceModifiedAtUtc { get; set; }
     public string? ErrorMessage { get; set; }
+    public string? OriginalMetadataJson { get; set; }
     public AudiobookExecutionRunEntity Run { get; set; } = null!;
 }

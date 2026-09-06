@@ -7,6 +7,209 @@ namespace Archivio.UnitTests;
 public sealed class AudiobookOrganisationServiceTests
 {
     [Fact]
+    public async Task GenreOverride_PersistsRevalidatesAndCanBeRestoredToAutomatic()
+    {
+        var sourceId = Guid.NewGuid();
+        var candidate = CreateCandidate(
+            sourceId,
+            "A Reliable Book",
+            "A Reliable Author",
+            confidence: 1m);
+        var overrideStore = new StubReviewOverrideStore();
+        var service = new AudiobookOrganisationService(
+            new StubOrganisationStore(),
+            overrideStore);
+
+        var initial = await service.PrepareProposalsAsync(sourceId, [candidate]);
+        var initialProposal = Assert.IsType<AudiobookOrganisationProposal>(
+            Assert.Single(initial).OrganisationProposal);
+
+        Assert.Equal("Uncategorised", initialProposal.GenreCategory);
+        Assert.False(initialProposal.ReadyForAutomaticHandling);
+
+        var corrected = await service.SetGenreOverrideAsync(
+            sourceId,
+            initial,
+            initialProposal.PlanKey,
+            "Science Fiction");
+        var correctedProposal = Assert.IsType<AudiobookOrganisationProposal>(
+            Assert.Single(corrected).OrganisationProposal);
+
+        Assert.Equal("Science Fiction", correctedProposal.GenreCategory);
+        Assert.True(correctedProposal.UsesManualGenre);
+        Assert.True(correctedProposal.ReadyForAutomaticHandling);
+        Assert.StartsWith("Science Fiction", correctedProposal.SuggestedRelativeFolder, StringComparison.Ordinal);
+        Assert.Contains(correctedProposal.Reasons, reason => reason.Contains("confirmed by you", StringComparison.Ordinal));
+
+        var reloaded = await service.PrepareProposalsAsync(sourceId, [candidate]);
+        Assert.True(Assert.Single(reloaded).OrganisationProposal?.UsesManualGenre);
+
+        var restored = await service.SetGenreOverrideAsync(
+            sourceId,
+            reloaded,
+            correctedProposal.PlanKey,
+            null);
+        var restoredProposal = Assert.IsType<AudiobookOrganisationProposal>(
+            Assert.Single(restored).OrganisationProposal);
+
+        Assert.Equal("Uncategorised", restoredProposal.GenreCategory);
+        Assert.False(restoredProposal.UsesManualGenre);
+        Assert.False(restoredProposal.ReadyForAutomaticHandling);
+    }
+
+    [Fact]
+    public async Task IdentityOverride_ReplacesUnknownIdentityPersistsAndCanBeRestored()
+    {
+        var sourceId = Guid.NewGuid();
+        var candidate = CreateCandidate(
+            sourceId,
+            "Zecharia Sitchin",
+            string.Empty,
+            confidence: 0.60m,
+            source: MetadataValueSource.Inferred,
+            genre: "Science Fiction");
+        var overrideStore = new StubReviewOverrideStore();
+        var service = new AudiobookOrganisationService(
+            new StubOrganisationStore(),
+            overrideStore);
+
+        var initial = await service.PrepareProposalsAsync(sourceId, [candidate]);
+        var initialProposal = Assert.IsType<AudiobookOrganisationProposal>(
+            Assert.Single(initial).OrganisationProposal);
+        Assert.Equal("Unknown Author", initialProposal.CanonicalAuthor);
+        Assert.False(initialProposal.ReadyForAutomaticHandling);
+
+        var corrected = await service.SetIdentityOverrideAsync(
+            sourceId,
+            initial,
+            initialProposal.PlanKey,
+            "Zecharia Sitchin",
+            "The Cosmic Code");
+        var correctedProposal = Assert.IsType<AudiobookOrganisationProposal>(
+            Assert.Single(corrected).OrganisationProposal);
+
+        Assert.Equal("Zecharia Sitchin", correctedProposal.CanonicalAuthor);
+        Assert.Equal("The Cosmic Code", correctedProposal.CanonicalTitle);
+        Assert.True(correctedProposal.UsesManualAuthor);
+        Assert.True(correctedProposal.UsesManualTitle);
+        Assert.True(correctedProposal.ReadyForAutomaticHandling);
+        Assert.Equal(0.95m, correctedProposal.Confidence);
+        Assert.Contains(
+            Path.Combine("Science Fiction", "Zecharia Sitchin", "The Cosmic Code"),
+            correctedProposal.SuggestedRelativeFolder,
+            StringComparison.Ordinal);
+
+        var reloaded = await service.PrepareProposalsAsync(sourceId, [candidate]);
+        Assert.True(Assert.Single(reloaded).OrganisationProposal?.UsesManualAuthor);
+
+        var restored = await service.SetIdentityOverrideAsync(
+            sourceId,
+            reloaded,
+            correctedProposal.PlanKey,
+            null,
+            null);
+        var restoredProposal = Assert.IsType<AudiobookOrganisationProposal>(
+            Assert.Single(restored).OrganisationProposal);
+
+        Assert.Equal("Unknown Author", restoredProposal.CanonicalAuthor);
+        Assert.Equal("Zecharia Sitchin", restoredProposal.CanonicalTitle);
+        Assert.False(restoredProposal.UsesManualAuthor);
+        Assert.False(restoredProposal.ReadyForAutomaticHandling);
+    }
+
+    [Fact]
+    public async Task IdentityOverride_RemainsAuthoritativeWhenOnlineEnrichmentArrivesLater()
+    {
+        var sourceId = Guid.NewGuid();
+        var candidate = CreateCandidate(
+            sourceId,
+            "Zecharia Sitchin",
+            string.Empty,
+            confidence: 0.60m,
+            source: MetadataValueSource.Inferred,
+            genre: "Science Fiction");
+        var service = new AudiobookOrganisationService(
+            new StubOrganisationStore(),
+            new StubReviewOverrideStore());
+        var initial = await service.PrepareProposalsAsync(sourceId, [candidate]);
+        var initialProposal = Assert.IsType<AudiobookOrganisationProposal>(
+            Assert.Single(initial).OrganisationProposal);
+        var corrected = await service.SetIdentityOverrideAsync(
+            sourceId,
+            initial,
+            initialProposal.PlanKey,
+            "Zecharia Sitchin",
+            "The Cosmic Code");
+        var enriched = Assert.Single(corrected) with
+        {
+            OnlineSuggestion = CreateSuggestion(
+                "/works/OL1W",
+                "The Cosmic Code",
+                "Zecharia Sitchin",
+                1998,
+                ["Science fiction"])
+        };
+
+        var regenerated = await service.PrepareProposalsAsync(sourceId, [enriched]);
+        var regeneratedProposal = Assert.IsType<AudiobookOrganisationProposal>(
+            Assert.Single(regenerated).OrganisationProposal);
+
+        Assert.Equal(initialProposal.PlanKey, regeneratedProposal.PlanKey);
+        Assert.True(regeneratedProposal.UsesManualAuthor);
+        Assert.True(regeneratedProposal.UsesManualTitle);
+        Assert.Equal("Zecharia Sitchin", regeneratedProposal.CanonicalAuthor);
+        Assert.Equal("The Cosmic Code", regeneratedProposal.CanonicalTitle);
+    }
+
+    [Fact]
+    public async Task SeparateBooksOverride_CreatesIndependentSeriesPlansForEachSourceFile()
+    {
+        var sourceId = Guid.NewGuid();
+        var titles = new[]
+        {
+            "The 12th Planet Earth Chronicles Series, Book 1",
+            "The Stairway to Heaven Earth Chronicles Series, Book 2",
+            "The Cosmic Code Earth Chronicles Series, Book 6"
+        };
+        var collection = CreateCompleteBookCollection(sourceId, titles);
+        var service = new AudiobookOrganisationService(
+            new StubOrganisationStore(),
+            new StubReviewOverrideStore());
+        var initial = await service.PrepareProposalsAsync(sourceId, [collection]);
+        var initialProposal = Assert.IsType<AudiobookOrganisationProposal>(
+            Assert.Single(initial).OrganisationProposal);
+
+        var separated = await service.SetCollectionOverrideAsync(
+            sourceId,
+            initial,
+            initialProposal.PlanKey,
+            AudiobookCollectionHandling.SeparateBooks,
+            "Zecharia Sitchin",
+            "Earth Chronicles");
+
+        Assert.Equal(3, separated.Count);
+        Assert.All(separated, candidate => Assert.Single(candidate.Parts));
+        Assert.All(separated, candidate => Assert.True(candidate.IsPrimaryOrganisationPlan));
+        Assert.Equal(3, separated.Select(candidate => candidate.OrganisationProposal!.PlanKey).Distinct().Count());
+        Assert.Contains(separated, candidate => candidate.OrganisationProposal is
+        {
+            CanonicalTitle: "The 12th Planet",
+            SeriesName: "Earth Chronicles",
+            SeriesPosition: 1,
+            IsSeparateBookPlan: true
+        });
+        Assert.Contains(separated, candidate => candidate.OrganisationProposal is
+        {
+            CanonicalTitle: "The Cosmic Code",
+            SeriesPosition: 6
+        });
+        Assert.All(separated, candidate => Assert.Contains(
+            Path.Combine("Science Fiction", "Zecharia Sitchin", "Earth Chronicles"),
+            candidate.OrganisationProposal!.SuggestedRelativeFolder,
+            StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task PrepareProposals_GroupsCandidatesWithTheSameOnlineIdentity()
     {
         var sourceId = Guid.NewGuid();
@@ -302,6 +505,40 @@ public sealed class AudiobookOrganisationServiceTests
     }
 
     [Fact]
+    public async Task IdentityOverride_DoesNotClearAnIncompleteTrackSequence()
+    {
+        var sourceId = Guid.NewGuid();
+        var candidate = CreateCandidate(
+            sourceId,
+            "Chapter Eleven",
+            "Roald Dahl",
+            confidence: 1m,
+            genre: "Children",
+            album: "Charlie and the Chocolate Factory",
+            trackNumber: 11);
+        var service = new AudiobookOrganisationService(
+            new StubOrganisationStore(),
+            new StubReviewOverrideStore());
+        var initial = await service.PrepareProposalsAsync(sourceId, [candidate]);
+        var initialProposal = Assert.IsType<AudiobookOrganisationProposal>(
+            Assert.Single(initial).OrganisationProposal);
+
+        var corrected = await service.SetIdentityOverrideAsync(
+            sourceId,
+            initial,
+            initialProposal.PlanKey,
+            "Roald Dahl",
+            "Charlie and the Chocolate Factory");
+        var correctedProposal = Assert.IsType<AudiobookOrganisationProposal>(
+            Assert.Single(corrected).OrganisationProposal);
+
+        Assert.False(correctedProposal.ReadyForAutomaticHandling);
+        Assert.Contains(
+            correctedProposal.Warnings,
+            warning => warning.Contains("complete, unique track sequence", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task PrepareProposals_BlocksAlbumConsolidationWithANonContiguousTrackSequence()
     {
         var sourceId = Guid.NewGuid();
@@ -441,6 +678,127 @@ public sealed class AudiobookOrganisationServiceTests
     }
 
     [Fact]
+    public async Task PrepareProposals_RecognisesItsCanonicalMultipartDestinationAfterRescan()
+    {
+        var sourceId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        var relativeDirectory = Path.Combine(
+            "Children & Young Adult",
+            "Roald Dahl",
+            "The BFG");
+        var parts = Enumerable.Range(1, 35)
+            .Select(index =>
+            {
+                var relativePath = Path.Combine(relativeDirectory, $"{index:000} - The BFG.mp3");
+                var item = new MediaItem(
+                    sourceId,
+                    Path.Combine(Path.GetTempPath(), "Archivio.Tests", relativePath),
+                    relativePath,
+                    100,
+                    now,
+                    now,
+                    now);
+                var metadata = new LocalMediaMetadata(
+                    item.FullPath,
+                    new MetadataValue("Chapter title", MetadataValueSource.EmbeddedTag),
+                    new MetadataValue("12 The BFG", MetadataValueSource.EmbeddedTag),
+                    new MetadataValue(null, MetadataValueSource.None),
+                    new MetadataValue(null, MetadataValueSource.None),
+                    null,
+                    (uint)((index - 1) % 12 + 1),
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    false,
+                    [],
+                    []);
+                return new AudiobookCandidatePart(item, index, true, metadata);
+            })
+            .ToList();
+        var candidate = new AudiobookCandidateGroup(
+            "12 The BFG - The BFG",
+            "12 The BFG",
+            "The BFG",
+            MetadataValueSource.EmbeddedTag,
+            MetadataValueSource.FileName,
+            true,
+            parts,
+            1m,
+            ["Embedded track numbers do not form a complete sequence."]);
+        var service = new AudiobookOrganisationService(new StubOrganisationStore());
+
+        var result = await service.PrepareProposalsAsync(sourceId, [candidate]);
+
+        var proposal = Assert.IsType<AudiobookOrganisationProposal>(Assert.Single(result).OrganisationProposal);
+        Assert.Equal("Roald Dahl", proposal.CanonicalAuthor);
+        Assert.Equal("The BFG", proposal.CanonicalTitle);
+        Assert.Equal("Children & Young Adult", proposal.GenreCategory);
+        Assert.Equal(relativeDirectory, proposal.SuggestedRelativeFolder);
+        Assert.Equal(AudiobookOrganisationAction.Keep, proposal.RecommendedAction);
+        Assert.True(proposal.ReadyForAutomaticHandling);
+    }
+
+    [Fact]
+    public async Task PrepareProposals_RecognisesItsCanonicalSingleFileDestinationBeforeOnlineMetadata()
+    {
+        var sourceId = Guid.NewGuid();
+        var canonicalDirectory = Path.Combine(
+            "Mystery & Thriller",
+            "Stephen King",
+            "Rage (1977)");
+        var candidate = CreateCandidate(
+            sourceId,
+            "Rage",
+            "1977",
+            confidence: 1m,
+            relativeDirectory: canonicalDirectory) with
+        {
+            Parts = CreateCandidate(
+                    sourceId,
+                    "Rage",
+                    "1977",
+                    confidence: 1m,
+                    relativeDirectory: canonicalDirectory)
+                .Parts
+                .Select(part =>
+                {
+                    var relativePath = Path.Combine(canonicalDirectory, "Stephen King - Rage.mp3");
+                    var item = new MediaItem(
+                        sourceId,
+                        Path.Combine(Path.GetTempPath(), "Archivio.Tests", relativePath),
+                        relativePath,
+                        part.MediaItem.SizeBytes,
+                        part.MediaItem.CreatedAtUtc,
+                        part.MediaItem.ModifiedAtUtc,
+                        part.MediaItem.LastScannedAtUtc);
+                    return part with { MediaItem = item };
+                })
+                .ToList(),
+            OnlineSuggestion = CreateSuggestion(
+                "/works/wrong",
+                "A Different Book",
+                "A Different Author",
+                1999,
+                ["Fantasy"])
+        };
+        var service = new AudiobookOrganisationService(new StubOrganisationStore());
+
+        var result = await service.PrepareProposalsAsync(sourceId, [candidate]);
+
+        var proposal = Assert.IsType<AudiobookOrganisationProposal>(Assert.Single(result).OrganisationProposal);
+        Assert.Equal("Stephen King", proposal.CanonicalAuthor);
+        Assert.Equal("Rage", proposal.CanonicalTitle);
+        Assert.Equal(1977, proposal.FirstPublishedYear);
+        Assert.Equal("Mystery & Thriller", proposal.GenreCategory);
+        Assert.Equal(canonicalDirectory, proposal.SuggestedRelativeFolder);
+        Assert.Equal(AudiobookOrganisationAction.Keep, proposal.RecommendedAction);
+        Assert.False(proposal.UsesOnlineMetadata);
+        Assert.True(proposal.ReadyForAutomaticHandling);
+    }
+
+    [Fact]
     public async Task PrepareProposals_DoesNotMarkAnOnlinePlanReadyWhileAnalysisStillNeedsReview()
     {
         var sourceId = Guid.NewGuid();
@@ -527,6 +885,52 @@ public sealed class AudiobookOrganisationServiceTests
             []);
     }
 
+    private static AudiobookCandidateGroup CreateCompleteBookCollection(
+        Guid sourceId,
+        IReadOnlyList<string> titles)
+    {
+        var now = DateTime.UtcNow;
+        var parts = titles.Select((title, index) =>
+        {
+            var relativePath = Path.Combine("Zecharia Sitchin", $"{title}.m4b");
+            var item = new MediaItem(
+                sourceId,
+                Path.Combine(Path.GetTempPath(), "Archivio.Tests", relativePath),
+                relativePath,
+                100,
+                now,
+                now,
+                now);
+            var metadata = new LocalMediaMetadata(
+                item.FullPath,
+                new MetadataValue(title, MetadataValueSource.EmbeddedTag),
+                new MetadataValue("Zecharia Sitchin", MetadataValueSource.EmbeddedTag),
+                new MetadataValue(null, MetadataValueSource.None),
+                new MetadataValue("Science Fiction", MetadataValueSource.EmbeddedTag),
+                null,
+                null,
+                TimeSpan.FromHours(8),
+                64,
+                22050,
+                2,
+                "MPEG-4 Audio",
+                true,
+                [],
+                []);
+            return new AudiobookCandidatePart(item, index + 1, false, metadata);
+        }).ToList();
+        return new AudiobookCandidateGroup(
+            "Zecharia Sitchin",
+            null,
+            "Zecharia Sitchin",
+            MetadataValueSource.None,
+            MetadataValueSource.FolderStructure,
+            true,
+            parts,
+            0.60m,
+            ["Title metadata differs across files; the inferred candidate value is shown."]);
+    }
+
     private static OnlineMetadataSuggestion CreateSuggestion(
         string providerItemId,
         string title,
@@ -574,6 +978,115 @@ public sealed class AudiobookOrganisationServiceTests
                 Cache.Remove(staleKey);
             }
 
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class StubReviewOverrideStore : IAudiobookReviewOverrideStore
+    {
+        private readonly Dictionary<string, AudiobookReviewOverrideEntry> _entries =
+            new(StringComparer.Ordinal);
+
+        public Task<IReadOnlyDictionary<string, AudiobookReviewOverrideEntry>> LoadAsync(
+            Guid librarySourceId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyDictionary<string, AudiobookReviewOverrideEntry>>(_entries);
+
+        public Task SetGenreAsync(
+            Guid librarySourceId,
+            string planKey,
+            string? genreCategory,
+            CancellationToken cancellationToken = default)
+        {
+            _entries.TryGetValue(planKey, out var current);
+            if (genreCategory is null &&
+                current?.CanonicalAuthor is null &&
+                current?.CanonicalTitle is null)
+            {
+                _entries.Remove(planKey);
+            }
+            else
+            {
+                _entries[planKey] = new AudiobookReviewOverrideEntry(
+                    planKey,
+                    current?.CanonicalAuthor,
+                    current?.CanonicalTitle,
+                    genreCategory,
+                    DateTime.UtcNow,
+                    current?.CollectionHandling ?? AudiobookCollectionHandling.Automatic,
+                    current?.SeriesName,
+                    current?.SeriesPosition);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task SetIdentityAsync(
+            Guid librarySourceId,
+            string planKey,
+            string? canonicalAuthor,
+            string? canonicalTitle,
+            CancellationToken cancellationToken = default)
+        {
+            _entries.TryGetValue(planKey, out var current);
+            if (canonicalAuthor is null && canonicalTitle is null && current?.GenreCategory is null)
+            {
+                _entries.Remove(planKey);
+            }
+            else
+            {
+                _entries[planKey] = new AudiobookReviewOverrideEntry(
+                    planKey,
+                    canonicalAuthor,
+                    canonicalTitle,
+                    current?.GenreCategory,
+                    DateTime.UtcNow,
+                    current?.CollectionHandling ?? AudiobookCollectionHandling.Automatic,
+                    current?.SeriesName,
+                    current?.SeriesPosition);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task SetCollectionAsync(
+            Guid librarySourceId,
+            string planKey,
+            AudiobookCollectionHandling collectionHandling,
+            string? canonicalAuthor,
+            string? seriesName,
+            CancellationToken cancellationToken = default)
+        {
+            _entries.TryGetValue(planKey, out var current);
+            _entries[planKey] = new AudiobookReviewOverrideEntry(
+                planKey,
+                canonicalAuthor,
+                null,
+                current?.GenreCategory,
+                DateTime.UtcNow,
+                collectionHandling,
+                seriesName,
+                null);
+            return Task.CompletedTask;
+        }
+
+        public Task SetSeriesAsync(
+            Guid librarySourceId,
+            string planKey,
+            string? seriesName,
+            int? seriesPosition,
+            CancellationToken cancellationToken = default)
+        {
+            _entries.TryGetValue(planKey, out var current);
+            _entries[planKey] = new AudiobookReviewOverrideEntry(
+                planKey,
+                current?.CanonicalAuthor,
+                current?.CanonicalTitle,
+                current?.GenreCategory,
+                DateTime.UtcNow,
+                current?.CollectionHandling ?? AudiobookCollectionHandling.Automatic,
+                seriesName,
+                seriesPosition);
             return Task.CompletedTask;
         }
     }

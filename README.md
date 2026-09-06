@@ -40,15 +40,21 @@ Metaroq stores only the selected folder metadata during this milestone. It does 
 
 ## Audiobook batch dry run
 
-Metaroq can turn saved audiobook organisation proposals into a whole-library dry-run queue. The queue expands each plan into file-level source and destination paths, detects missing sources and destination conflicts, and stores bulk or selected-plan approval and deferral decisions in SQLite. Review-required and conflicting plans cannot be approved until their safety checks pass.
+Metaroq can turn saved audiobook organisation proposals into a whole-library dry-run queue. The queue expands each plan into file-level source and destination paths, detects missing sources and destination conflicts, and stores bulk or selected-plan approval and deferral decisions in SQLite. Bulk approval is deliberately limited to clean, single-source-file audiobook plans at 100% confidence, including plans already in the correct location that require no file operation. Multi-file plans always require an individual user decision because grouping and track order remain separate risks even when the metadata match is exact. Review-required and conflicting plans cannot be approved until their safety checks pass.
+
+Before building that queue, Metaroq forms logical audiobook plans from local metadata and folder evidence. Books whose embedded genre is missing or only describes the format are looked up online once per logical book rather than once per chapter or source file. A result is accepted only when the existing conservative title and author thresholds pass, and the suggestion is then shared by every source file in that audiobook plan.
+
+The review workspace separates plans that are already organised from those needing metadata review or conflict resolution. A reviewer can compare every original filename, library path, and embedded title, author, album, track, and duration beside the correction controls, and can open a selected source in the Windows default audio player. They can then confirm the complete author, audiobook title, and a supported genre. These durable corrections immediately regenerate and revalidate the plan without changing any media files. The automatic Metaroq identity or genre suggestion can be restored at any time.
+
+Metaroq distinguishes multipart chapter sets from collections of complete books before online enrichment. Multiple long-form `.m4b` files with distinct embedded titles or explicit labels such as `Series, Book 6` are searched and planned as independent audiobooks. A reviewer can also explicitly split an ambiguous collection and assign an optional series name and book number. Series books are proposed beneath a shared series folder while retaining separate book folders and files.
 
 ## Guarded audiobook execution
 
 Approved, conflict-free move and rename plans can now be executed after an explicit confirmation. Immediately before execution, Metaroq revalidates the library boundary, source existence, source size and modified time, unique targets, and destination availability. Existing destination files are never overwritten.
 
-Every run and file operation is written to a SQLite execution journal before media changes begin. Progress is checkpointed after each move. If an operation fails or the user cancels, completed moves are rolled back in reverse order where that can be done without overwriting anything. Interrupted runs are detected when the source is reopened and must be recovered before another execution can start.
+Every run and file operation is written to a SQLite execution journal before media changes begin. The original embedded tags are journalled before Metaroq writes the approved title, author, album, genre, year, series, and track order. Progress is checkpointed after each operation. If an operation fails or the user cancels, completed moves and metadata changes are rolled back in reverse order where that can be done safely. Interrupted runs are detected when the source is reopened and must be recovered before another execution can start.
 
-This milestone supports move and rename operations only. Audio combining, deletion, metadata rewriting, and unattended execution remain disabled.
+This milestone supports move, rename, and journalled metadata updates. Audio combining, deletion, and unattended execution remain disabled.
 
 ## Requirements
 

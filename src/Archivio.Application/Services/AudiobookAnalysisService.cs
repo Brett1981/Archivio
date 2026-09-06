@@ -266,10 +266,7 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
                     warningCount));
             }
 
-            enrichedCandidates.Add(parsedCandidates
-                .GroupBy(value => value.GroupKey, StringComparer.OrdinalIgnoreCase)
-                .Select(CreateGroup)
-                .Single());
+            enrichedCandidates.AddRange(CreateMetadataAwareGroups(parsedCandidates));
         }
 
         return enrichedCandidates
@@ -405,10 +402,7 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
             var parsedCandidates = candidate.Parts
                 .Select(part => Parse(part.MediaItem, metadataByMediaItemId[part.MediaItem.Id], metadataWasLoaded: true))
                 .ToList();
-            enrichedCandidates.Add(parsedCandidates
-                .GroupBy(value => value.GroupKey, StringComparer.OrdinalIgnoreCase)
-                .Select(CreateGroup)
-                .Single());
+            enrichedCandidates.AddRange(CreateMetadataAwareGroups(parsedCandidates));
         }
 
         return enrichedCandidates
@@ -495,6 +489,8 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
             title,
             sequence,
             sequenceWasInferred,
+            metadataSequence,
+            filenameSequence,
             metadata,
             metadataWasLoaded);
     }
@@ -521,16 +517,22 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
 
     private static (string? Author, string Title) ParseAuthorAndTitle(string cleanedStem, string relativePath)
     {
+        var parent = Path.GetFileName(Path.GetDirectoryName(relativePath));
+        var grandParent = Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(relativePath) ?? string.Empty));
         var separatorIndex = cleanedStem.IndexOf(" - ", StringComparison.Ordinal);
         if (separatorIndex > 0 && separatorIndex < cleanedStem.Length - 3)
         {
-            return (
-                NormalizeWhitespace(cleanedStem[..separatorIndex]),
-                NormalizeWhitespace(cleanedStem[(separatorIndex + 3)..]));
-        }
+            var possibleAuthor = NormalizeWhitespace(cleanedStem[..separatorIndex]);
+            var title = NormalizeWhitespace(cleanedStem[(separatorIndex + 3)..]);
+            if (PublicationYearRegex().IsMatch(possibleAuthor))
+            {
+                return (FindFolderAuthor(parent, grandParent, title), title);
+            }
 
-        var parent = Path.GetFileName(Path.GetDirectoryName(relativePath));
-        var grandParent = Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(relativePath) ?? string.Empty));
+            return (
+                possibleAuthor,
+                title);
+        }
 
         if (!string.IsNullOrWhiteSpace(parent) && !string.Equals(parent, ".", StringComparison.Ordinal))
         {
@@ -542,29 +544,71 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
         return (null, cleanedStem);
     }
 
+    private static string? FindFolderAuthor(string? parent, string? grandParent, string title)
+    {
+        if (IsPlausibleFolderAuthor(grandParent, title))
+        {
+            return NormalizeWhitespace(grandParent!);
+        }
+
+        if (!string.IsNullOrWhiteSpace(parent))
+        {
+            var separatorIndex = parent.IndexOf(" - ", StringComparison.Ordinal);
+            var possibleAuthor = separatorIndex > 0
+                ? parent[..separatorIndex]
+                : parent;
+            if (IsPlausibleFolderAuthor(possibleAuthor, title))
+            {
+                return NormalizeWhitespace(possibleAuthor);
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsPlausibleFolderAuthor(string? value, string title) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        !string.Equals(value, ".", StringComparison.Ordinal) &&
+        !PublicationYearRegex().IsMatch(value.Trim()) &&
+        !string.Equals(NormalizeKey(value), NormalizeKey(title), StringComparison.Ordinal);
+
     private static AudiobookCandidateGroup CreateGroup(IGrouping<string, ParsedCandidate> candidates)
     {
-        var ordered = candidates
-            .OrderBy(candidate => candidate.Sequence == 0 ? int.MaxValue : candidate.Sequence)
+        var materialized = candidates.ToList();
+        var useFilenameSequence = HasCompleteSequence(
+            materialized.Select(candidate => candidate.FilenameSequence),
+            materialized.Count);
+        var useMetadataSequence = !useFilenameSequence && HasCompleteSequence(
+            materialized.Select(candidate => candidate.MetadataSequence),
+            materialized.Count);
+        int EffectiveSequence(ParsedCandidate candidate) => useFilenameSequence
+            ? candidate.FilenameSequence
+            : useMetadataSequence
+                ? candidate.MetadataSequence
+                : candidate.Sequence;
+
+        var ordered = materialized
+            .OrderBy(candidate => EffectiveSequence(candidate) == 0 ? int.MaxValue : EffectiveSequence(candidate))
             .ThenBy(candidate => candidate.Item.RelativePath, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         var first = ordered[0];
         var warnings = new List<string>();
-        if (ordered.Count > 1 && ordered.Any(candidate => !candidate.SequenceWasInferred))
+        if (ordered.Count > 1 && ordered.Any(candidate => EffectiveSequence(candidate) == 0))
         {
             warnings.Add("One or more part numbers could not be inferred; filename order is being used.");
         }
 
         var duplicateSequences = ordered
-            .Where(candidate => candidate.Sequence > 0)
-            .GroupBy(candidate => candidate.Sequence)
+            .Where(candidate => EffectiveSequence(candidate) > 0)
+            .GroupBy(candidate => EffectiveSequence(candidate))
             .Where(group => group.Count() > 1)
-            .Select(group => group.Key)
             .ToList();
-        if (duplicateSequences.Count > 0)
+        foreach (var duplicateSequence in duplicateSequences)
         {
-            warnings.Add($"Duplicate part numbers detected: {string.Join(", ", duplicateSequences)}.");
+            warnings.Add(
+                $"Duplicate part number {duplicateSequence.Key}: " +
+                $"{string.Join(", ", duplicateSequence.Select(candidate => candidate.Item.FileName))}.");
         }
 
         foreach (var candidate in ordered)
@@ -579,8 +623,13 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
         var authorMetadata = SelectGroupMetadataValue(
             ordered.Select(candidate => candidate.Metadata.Author), fallbackAuthor, "Author", warnings);
         var titleMetadata = SelectConsistentMultipartAlbum(ordered) ??
-                            SelectGroupMetadataValue(
-                                ordered.Select(candidate => candidate.Metadata.Title), fallbackTitle, "Title", warnings);
+                            (ordered.Count > 1 && useFilenameSequence
+                                ? fallbackTitle
+                                : SelectGroupMetadataValue(
+                                    ordered.Select(candidate => candidate.Metadata.Title),
+                                    fallbackTitle,
+                                    "Title",
+                                    warnings));
         var author = authorMetadata.Value;
         var title = titleMetadata.Value ?? first.Title;
 
@@ -588,8 +637,8 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
         var parts = ordered
             .Select((candidate, index) => new AudiobookCandidatePart(
                 candidate.Item,
-                candidate.Sequence > 0 ? candidate.Sequence : index + 1,
-                candidate.SequenceWasInferred,
+                EffectiveSequence(candidate) > 0 ? EffectiveSequence(candidate) : index + 1,
+                EffectiveSequence(candidate) > 0,
                 candidate.Metadata))
             .ToList();
         var displayName = string.IsNullOrWhiteSpace(author)
@@ -608,6 +657,53 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
             warnings);
     }
 
+    private static bool HasCompleteSequence(IEnumerable<int> values, int count) =>
+        values.Order().SequenceEqual(Enumerable.Range(1, count));
+
+    private static IReadOnlyList<AudiobookCandidateGroup> CreateMetadataAwareGroups(
+        IReadOnlyList<ParsedCandidate> candidates)
+    {
+        var keepEachFileSeparate = LooksLikeSeparateCompleteBooks(candidates);
+        return candidates
+            .GroupBy(
+                candidate => keepEachFileSeparate
+                    ? candidate.Item.Id.ToString("N")
+                    : candidate.GroupKey,
+                StringComparer.OrdinalIgnoreCase)
+            .Select(CreateGroup)
+            .ToList();
+    }
+
+    private static bool LooksLikeSeparateCompleteBooks(IReadOnlyList<ParsedCandidate> candidates)
+    {
+        if (candidates.Count <= 1 ||
+            candidates.Any(candidate => !string.Equals(
+                candidate.Item.Extension,
+                ".m4b",
+                StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        var embeddedTitles = candidates
+            .Select(candidate => candidate.Metadata.Title)
+            .ToList();
+        if (embeddedTitles.Any(title => title.Source != MetadataValueSource.EmbeddedTag || !title.HasValue) ||
+            embeddedTitles.Select(title => NormalizeKey(title.Value!))
+                .Distinct(StringComparer.Ordinal)
+                .Count() != candidates.Count)
+        {
+            return false;
+        }
+
+        var explicitBookLabels = embeddedTitles.Count(title =>
+            CompleteBookMarkerRegex().IsMatch(title.Value!));
+        var longFormFiles = candidates.Count(candidate =>
+            candidate.Metadata.Duration >= TimeSpan.FromMinutes(45));
+        return explicitBookLabels >= Math.Max(2, candidates.Count / 2) ||
+               longFormFiles == candidates.Count;
+    }
+
     private static Match FindSequenceMatch(string stem)
     {
         var match = PartNumberRegex().Match(stem);
@@ -617,7 +713,13 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
         }
 
         match = ChapterNumberRegex().Match(stem);
-        return match.Success ? match : LeadingSequenceRegex().Match(stem);
+        if (match.Success)
+        {
+            return match;
+        }
+
+        match = LeadingSequenceRegex().Match(stem);
+        return match.Success ? match : TrailingSequenceRegex().Match(stem);
     }
 
     private static MetadataValue? SelectConsistentMultipartAlbum(IReadOnlyCollection<ParsedCandidate> candidates)
@@ -715,6 +817,15 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
     [GeneratedRegex(@"^\s*(\d{1,3})(?=[\s._-])[\s._-]*")]
     private static partial Regex LeadingSequenceRegex();
 
+    [GeneratedRegex(@"\s[-–—]\s*(\d{1,3})\s*$")]
+    private static partial Regex TrailingSequenceRegex();
+
+    [GeneratedRegex(@"^(?:18|19|20)\d{2}$")]
+    private static partial Regex PublicationYearRegex();
+
+    [GeneratedRegex(@"\b(?:book|volume)\s*[#:]?\s*\d+\b", RegexOptions.IgnoreCase)]
+    private static partial Regex CompleteBookMarkerRegex();
+
     [GeneratedRegex(@"\s+")]
     private static partial Regex WhitespaceRegex();
 
@@ -728,6 +839,8 @@ public sealed partial class AudiobookAnalysisService : IAudiobookAnalysisService
         string Title,
         int Sequence,
         bool SequenceWasInferred,
+        int MetadataSequence,
+        int FilenameSequence,
         LocalMediaMetadata Metadata,
         bool MetadataWasLoaded);
 

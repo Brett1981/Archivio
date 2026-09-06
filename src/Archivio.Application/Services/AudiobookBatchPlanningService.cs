@@ -138,13 +138,9 @@ public sealed partial class AudiobookBatchPlanningService(
             .GroupBy(part => part.MediaItem.Id)
             .Select(group => group.First())
             .ToList();
-        var hasCompleteTrackOrder = uniqueParts.All(part => part.Metadata.TrackNumber is not null) &&
-                                    uniqueParts.Select(part => part.Metadata.TrackNumber!.Value)
-                                        .Order()
-                                        .SequenceEqual(
-                                            Enumerable.Range(1, uniqueParts.Count).Select(number => (uint)number));
+        var hasCompleteTrackOrder = TryGetCompleteTrackOrder(uniqueParts, out var detectedTrackOrder);
         var parts = (hasCompleteTrackOrder
-                ? uniqueParts.OrderBy(part => part.Metadata.TrackNumber!.Value)
+                ? uniqueParts.OrderBy(part => detectedTrackOrder[part.MediaItem.Id])
                     .ThenBy(part => part.MediaItem.RelativePath, StringComparer.OrdinalIgnoreCase)
                 : uniqueParts.OrderBy(part => part.MediaItem.RelativePath, StringComparer.OrdinalIgnoreCase)
                     .ThenBy(part => part.Sequence))
@@ -155,7 +151,7 @@ public sealed partial class AudiobookBatchPlanningService(
             !hasCompleteTrackOrder)
         {
             warnings.Add(
-                "Consolidated candidates require one complete, unique embedded track sequence from 1 to the total file count.");
+                "Consolidated candidates require one complete, unique track sequence from 1 to the total file count in embedded metadata or filenames.");
         }
         var operations = new List<AudiobookFileOperation>(parts.Count);
 
@@ -191,7 +187,10 @@ public sealed partial class AudiobookBatchPlanningService(
                 part.MediaItem.Id,
                 part.MediaItem.RelativePath,
                 destination,
-                SelectOperationKind(part.MediaItem.RelativePath, destination)));
+                SelectOperationKind(
+                    part.MediaItem.RelativePath,
+                    destination,
+                    NeedsMetadataUpdate(part, proposal, index + 1, parts.Count))));
         }
 
         var duplicateTargets = operations
@@ -294,11 +293,14 @@ public sealed partial class AudiobookBatchPlanningService(
 
     private static AudiobookFileOperationKind SelectOperationKind(
         string source,
-        string destination)
+        string destination,
+        bool metadataNeedsUpdate = false)
     {
         if (string.Equals(source, destination, StringComparison.OrdinalIgnoreCase))
         {
-            return AudiobookFileOperationKind.NoChange;
+            return metadataNeedsUpdate
+                ? AudiobookFileOperationKind.UpdateMetadata
+                : AudiobookFileOperationKind.NoChange;
         }
 
         return string.Equals(
@@ -307,6 +309,125 @@ public sealed partial class AudiobookBatchPlanningService(
             StringComparison.OrdinalIgnoreCase)
             ? AudiobookFileOperationKind.Rename
             : AudiobookFileOperationKind.MoveAndRename;
+    }
+
+    private static bool NeedsMetadataUpdate(
+        AudiobookCandidatePart part,
+        AudiobookOrganisationProposal proposal,
+        int sequence,
+        int totalCount)
+    {
+        var metadata = part.Metadata;
+        if (!MetadataEquals(metadata.Author.Value, proposal.CanonicalAuthor) ||
+            !MetadataEquals(metadata.Album.Value, proposal.CanonicalTitle) ||
+            !MetadataEquals(metadata.Genre.Value, proposal.GenreCategory) ||
+            metadata.TrackNumber != (uint)sequence ||
+            metadata.TrackCount != (uint)totalCount ||
+            !MetadataEquals(metadata.SeriesName, proposal.SeriesName))
+        {
+            return true;
+        }
+
+        var expectedTitle = totalCount == 1
+            ? proposal.CanonicalTitle
+            : $"{proposal.CanonicalTitle} - Track {sequence:000}";
+        if (!MetadataEquals(metadata.Title.Value, expectedTitle))
+        {
+            return true;
+        }
+
+        return proposal.FirstPublishedYear is not null &&
+               metadata.Year != (uint)proposal.FirstPublishedYear.Value;
+    }
+
+    private static bool MetadataEquals(string? current, string? expected) =>
+        string.Equals(
+            current?.Trim(),
+            expected?.Trim(),
+            StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryGetCompleteTrackOrder(
+        IReadOnlyCollection<AudiobookCandidatePart> parts,
+        out IReadOnlyDictionary<Guid, int> order)
+    {
+        if (TryBuildCompleteTrackOrder(parts, TryGetEmbeddedTrackNumber, out order) ||
+            TryBuildCompleteTrackOrder(parts, TryGetFilenameTrackNumber, out order) ||
+            TryBuildCompleteTrackOrder(parts, TryGetPreviouslyDetectedTrackNumber, out order))
+        {
+            return true;
+        }
+
+        order = new Dictionary<Guid, int>();
+        return false;
+    }
+
+    private static bool TryBuildCompleteTrackOrder(
+        IReadOnlyCollection<AudiobookCandidatePart> parts,
+        TryGetTrackNumber tryGetTrackNumber,
+        out IReadOnlyDictionary<Guid, int> order)
+    {
+        var detected = new Dictionary<Guid, int>();
+        foreach (var part in parts)
+        {
+            if (!tryGetTrackNumber(part, out var trackNumber) || trackNumber <= 0)
+            {
+                order = detected;
+                return false;
+            }
+
+            detected[part.MediaItem.Id] = trackNumber;
+        }
+
+        var complete = detected.Values
+            .Order()
+            .SequenceEqual(Enumerable.Range(1, parts.Count));
+        order = detected;
+        return complete;
+    }
+
+    private static bool TryGetEmbeddedTrackNumber(AudiobookCandidatePart part, out int trackNumber)
+    {
+        if (part.Metadata.TrackNumber is > 0 and <= int.MaxValue)
+        {
+            trackNumber = (int)part.Metadata.TrackNumber.Value;
+            return true;
+        }
+
+        trackNumber = 0;
+        return false;
+    }
+
+    private static bool TryGetFilenameTrackNumber(AudiobookCandidatePart part, out int trackNumber)
+    {
+        trackNumber = 0;
+        var stem = Path.GetFileNameWithoutExtension(part.MediaItem.FileName);
+        var match = PartNumberRegex().Match(stem);
+        if (!match.Success)
+        {
+            match = ChapterNumberRegex().Match(stem);
+        }
+
+        if (!match.Success)
+        {
+            match = LeadingSequenceNumberRegex().Match(stem);
+        }
+
+        if (!match.Success)
+        {
+            match = TrailingSequenceRegex().Match(stem);
+        }
+
+        return match.Success &&
+               int.TryParse(match.Groups[1].Value, out trackNumber) &&
+               trackNumber > 0;
+    }
+
+    private static bool TryGetPreviouslyDetectedTrackNumber(
+        AudiobookCandidatePart part,
+        out int trackNumber)
+    {
+        trackNumber = part.Sequence;
+        return part.SequenceWasInferred && trackNumber > 0;
     }
 
     private static AudiobookBatchPlan WithInputSignature(AudiobookBatchPlan plan)
@@ -330,4 +451,18 @@ public sealed partial class AudiobookBatchPlanningService(
 
     [GeneratedRegex(@"^\d{3}(?=\s*[-–—])")]
     private static partial Regex LeadingSequenceRegex();
+
+    [GeneratedRegex(@"(?i)(?:^|[\s._-])(?:part|pt|cd|disc|disk)[\s._-]*(\d{1,4})(?:$|[\s._-])")]
+    private static partial Regex PartNumberRegex();
+
+    [GeneratedRegex(@"(?i)(?:^|[\s._-])(?:chapter|ch)[\s._-]*(\d{1,4})(?:$|[\s._-])")]
+    private static partial Regex ChapterNumberRegex();
+
+    [GeneratedRegex(@"^\s*(\d{1,3})(?=[\s._-])")]
+    private static partial Regex LeadingSequenceNumberRegex();
+
+    [GeneratedRegex(@"\s[-–—]\s*(\d{1,3})\s*$")]
+    private static partial Regex TrailingSequenceRegex();
+
+    private delegate bool TryGetTrackNumber(AudiobookCandidatePart part, out int trackNumber);
 }

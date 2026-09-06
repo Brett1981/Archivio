@@ -10,8 +10,9 @@ internal sealed class AudiobookExecutionConfirmationService : IAudiobookExecutio
         var fileLabel = operationCount == 1 ? "file" : "files";
         var message =
             $"Metaroq is ready to execute {planCount:N0} approved {planLabel} covering {operationCount:N0} {fileLabel}.\n\n" +
-            "Every source and destination will be checked again. Existing destinations will never be overwritten. " +
-            "If a later move fails, completed moves will be rolled back where safe.\n\nContinue?";
+            "Each file's embedded metadata will be updated to the approved author, title, genre, year, series, and track order. " +
+            "Every source and destination will be checked again, and existing destinations will never be overwritten. " +
+            "If a later operation fails, completed moves and original metadata will be rolled back where safe.\n\nContinue?";
         return MessageBox.Show(
             global::System.Windows.Application.Current?.MainWindow,
             message,
@@ -27,7 +28,7 @@ internal sealed class AudiobookExecutionConfirmationService : IAudiobookExecutio
         return MessageBox.Show(
             global::System.Windows.Application.Current?.MainWindow,
             $"Metaroq found an interrupted execution containing {operationCount:N0} {fileLabel}. " +
-            "Recovery will only move recorded destinations back to their original sources when that can be done without overwriting anything.\n\nContinue with recovery?",
+            "Recovery will restore journalled metadata and only move recorded destinations back to their original sources when that can be done without overwriting anything.\n\nContinue with recovery?",
             "Recover interrupted execution",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning,

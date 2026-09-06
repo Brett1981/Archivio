@@ -36,7 +36,8 @@ internal sealed class AudiobookExecutionJournalStore(
                 Status = (int)operation.Status,
                 SourceSizeBytes = operation.SourceSizeBytes,
                 SourceModifiedAtUtc = operation.SourceModifiedAtUtc,
-                ErrorMessage = operation.ErrorMessage
+                ErrorMessage = operation.ErrorMessage,
+                OriginalMetadataJson = operation.OriginalMetadataJson
             }).ToList()
         });
         await context.SaveChangesAsync(cancellationToken);
@@ -119,7 +120,8 @@ internal sealed class AudiobookExecutionJournalStore(
                     ReadEnum<AudiobookExecutionOperationStatus>(operation.Status),
                     operation.SourceSizeBytes,
                     AsUtc(operation.SourceModifiedAtUtc),
-                    operation.ErrorMessage))
+                    operation.ErrorMessage,
+                    operation.OriginalMetadataJson))
                 .ToList());
     }
 

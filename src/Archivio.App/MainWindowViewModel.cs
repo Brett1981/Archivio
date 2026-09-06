@@ -15,6 +15,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly IFolderPickerService _folderPickerService;
     private readonly IBackgroundScanService _backgroundScanService;
     private readonly IMediaCatalogueService _mediaCatalogueService;
+    private readonly IAudioPreviewService _audioPreviewService;
 
     public MainWindowViewModel(
         IOptions<ArchivioOptions> options,
@@ -27,7 +28,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         IAudiobookOrganisationService audiobookOrganisationService,
         IAudiobookBatchPlanningService audiobookBatchPlanningService,
         IAudiobookBatchExecutionService audiobookBatchExecutionService,
-        IAudiobookExecutionConfirmationService audiobookExecutionConfirmationService)
+        IAudiobookExecutionConfirmationService audiobookExecutionConfirmationService,
+        IAudioPreviewService audioPreviewService)
     {
         _librarySourceService = librarySourceService;
         _folderPickerService = folderPickerService;
@@ -39,6 +41,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _audiobookBatchPlanningService = audiobookBatchPlanningService;
         _audiobookBatchExecutionService = audiobookBatchExecutionService;
         _audiobookExecutionConfirmationService = audiobookExecutionConfirmationService;
+        _audioPreviewService = audioPreviewService;
         _backgroundScanService.ProgressChanged += HandleScanProgress;
         _backgroundScanService.ScanCompleted += HandleScanCompleted;
         _backgroundScanService.ScanFailed += HandleScanFailed;

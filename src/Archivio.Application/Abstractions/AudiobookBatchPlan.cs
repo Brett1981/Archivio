@@ -19,7 +19,8 @@ public enum AudiobookFileOperationKind
 {
     NoChange = 0,
     Rename = 1,
-    MoveAndRename = 2
+    MoveAndRename = 2,
+    UpdateMetadata = 3
 }
 
 public sealed record AudiobookFileOperation(
@@ -33,12 +34,16 @@ public sealed record AudiobookFileOperation(
         AudiobookFileOperationKind.NoChange => "No change",
         AudiobookFileOperationKind.Rename => "Rename",
         AudiobookFileOperationKind.MoveAndRename => "Move and rename",
+        AudiobookFileOperationKind.UpdateMetadata => "Update metadata",
         _ => "Review operation"
     };
 
-    public string Display => Kind == AudiobookFileOperationKind.NoChange
-        ? $"Keep  {SourceRelativePath}"
-        : $"{SourceRelativePath}  →  {DestinationRelativePath}";
+    public string Display => Kind switch
+    {
+        AudiobookFileOperationKind.NoChange => $"Keep  {SourceRelativePath}",
+        AudiobookFileOperationKind.UpdateMetadata => $"Update tags  {SourceRelativePath}",
+        _ => $"{SourceRelativePath}  →  {DestinationRelativePath}"
+    };
 }
 
 public sealed record AudiobookBatchPlan(
@@ -51,7 +56,8 @@ public sealed record AudiobookBatchPlan(
     IReadOnlyList<string> Warnings,
     DateTime PreparedAtUtc)
 {
-    public bool CanApprove => ValidationStatus == AudiobookBatchValidationStatus.Ready;
+    public bool CanApprove => ValidationStatus is
+        AudiobookBatchValidationStatus.Ready or AudiobookBatchValidationStatus.NoChange;
     public bool IsBlocked => ValidationStatus is
         AudiobookBatchValidationStatus.ReviewRequired or AudiobookBatchValidationStatus.Conflict;
 
@@ -66,7 +72,9 @@ public sealed record AudiobookBatchPlan(
 
     public string DecisionLabel => Decision switch
     {
-        AudiobookBatchDecision.Approved => "Approved for a future execution stage",
+        AudiobookBatchDecision.Approved when ValidationStatus == AudiobookBatchValidationStatus.NoChange =>
+            "Approved · no file operation required",
+        AudiobookBatchDecision.Approved => "Approved for execution",
         AudiobookBatchDecision.Deferred => "Deferred",
         _ => "Decision pending"
     };

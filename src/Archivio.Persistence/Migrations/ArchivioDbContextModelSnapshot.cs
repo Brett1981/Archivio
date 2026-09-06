@@ -53,6 +53,21 @@ public partial class ArchivioDbContextModelSnapshot : ModelSnapshot
             entity.ToTable("AudiobookBatchDecisions");
         });
 
+        modelBuilder.Entity<AudiobookReviewOverrideEntity>(entity =>
+        {
+            entity.Property(x => x.LibrarySourceId).HasColumnType("TEXT");
+            entity.Property(x => x.PlanKey).HasMaxLength(64).HasColumnType("TEXT");
+            entity.Property(x => x.CanonicalAuthor).HasMaxLength(200).HasColumnType("TEXT");
+            entity.Property(x => x.CanonicalTitle).HasMaxLength(300).HasColumnType("TEXT");
+            entity.Property(x => x.CollectionHandling).HasColumnType("INTEGER");
+            entity.Property(x => x.GenreCategory).IsRequired().HasMaxLength(64).HasColumnType("TEXT");
+            entity.Property(x => x.SeriesName).HasMaxLength(200).HasColumnType("TEXT");
+            entity.Property(x => x.SeriesPosition).HasColumnType("INTEGER");
+            entity.Property(x => x.UpdatedAtUtc).HasColumnType("TEXT");
+            entity.HasKey(x => new { x.LibrarySourceId, x.PlanKey });
+            entity.ToTable("AudiobookReviewOverrides");
+        });
+
         modelBuilder.Entity<AudiobookExecutionRunEntity>(entity =>
         {
             entity.Property(x => x.Id).HasColumnType("TEXT");
@@ -85,6 +100,7 @@ public partial class ArchivioDbContextModelSnapshot : ModelSnapshot
             entity.Property(x => x.SourceSizeBytes).HasColumnType("INTEGER");
             entity.Property(x => x.SourceModifiedAtUtc).HasColumnType("TEXT");
             entity.Property(x => x.ErrorMessage).HasMaxLength(2048).HasColumnType("TEXT");
+            entity.Property(x => x.OriginalMetadataJson).HasColumnType("TEXT");
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.RunId, x.SortOrder }).IsUnique();
             entity.ToTable("AudiobookExecutionOperations");
@@ -194,6 +210,13 @@ public partial class ArchivioDbContextModelSnapshot : ModelSnapshot
             .IsRequired();
 
         modelBuilder.Entity<AudiobookBatchDecisionEntity>()
+            .HasOne<LibrarySource>()
+            .WithMany()
+            .HasForeignKey(x => x.LibrarySourceId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .IsRequired();
+
+        modelBuilder.Entity<AudiobookReviewOverrideEntity>()
             .HasOne<LibrarySource>()
             .WithMany()
             .HasForeignKey(x => x.LibrarySourceId)

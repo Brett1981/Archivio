@@ -29,6 +29,7 @@ public sealed class DatabaseMigrationTests
         Assert.Equal(1, await CountTableAsync(connection, "OnlineMetadataCache"));
         Assert.Equal(1, await CountTableAsync(connection, "AudiobookOrganisationProposals"));
         Assert.Equal(1, await CountTableAsync(connection, "AudiobookBatchDecisions"));
+        Assert.Equal(1, await CountTableAsync(connection, "AudiobookReviewOverrides"));
         Assert.Equal(1, await CountTableAsync(connection, "AudiobookExecutionRuns"));
         Assert.Equal(1, await CountTableAsync(connection, "AudiobookExecutionOperations"));
         Assert.Equal(1, await CountMigrationAsync(connection, "202607210001_InitialCreate"));
@@ -39,6 +40,10 @@ public sealed class DatabaseMigrationTests
         Assert.Equal(1, await CountMigrationAsync(connection, "20260819120000_AddAudiobookOrganisationProposals"));
         Assert.Equal(1, await CountMigrationAsync(connection, "20260819160000_AddAudiobookBatchDecisions"));
         Assert.Equal(1, await CountMigrationAsync(connection, "20260819170000_AddAudiobookExecutionJournal"));
+        Assert.Equal(1, await CountMigrationAsync(connection, "20260905150000_AddAudiobookReviewOverrides"));
+        Assert.Equal(1, await CountMigrationAsync(connection, "20260905170000_AddAudiobookIdentityReviewOverrides"));
+        Assert.Equal(1, await CountMigrationAsync(connection, "20260905190000_AddAudiobookSeriesReviewOverrides"));
+        Assert.Equal(1, await CountMigrationAsync(connection, "20260905200000_AddAudiobookExecutionMetadataJournal"));
     }
 
     private static async Task<long> CountTableAsync(SqliteConnection connection, string tableName)

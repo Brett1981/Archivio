@@ -14,6 +14,69 @@ public sealed class AudiobookAnalysisStoreTests
     }
 
     [Fact]
+    public async Task ReviewOverrideStore_PersistsAndIndependentlyRemovesConfirmedMetadata()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<ArchivioDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        var factory = new TestDbContextFactory(options);
+        var source = new LibrarySource(
+            "Audiobooks",
+            Path.Combine(Path.GetTempPath(), "Archivio.Tests", Guid.NewGuid().ToString("N")),
+            LibrarySourceType.Audiobooks);
+
+        await using (var context = factory.CreateDbContext())
+        {
+            await context.Database.EnsureCreatedAsync();
+            context.LibrarySources.Add(source);
+            await context.SaveChangesAsync();
+        }
+
+        var store = new AudiobookReviewOverrideStore(factory);
+        await store.SetGenreAsync(source.Id, "plan-key", "Science Fiction");
+        await store.SetIdentityAsync(source.Id, "plan-key", "Zecharia Sitchin", "The Cosmic Code");
+
+        var saved = await store.LoadAsync(source.Id);
+        Assert.Equal("Science Fiction", saved["plan-key"].GenreCategory);
+        Assert.Equal("Zecharia Sitchin", saved["plan-key"].CanonicalAuthor);
+        Assert.Equal("The Cosmic Code", saved["plan-key"].CanonicalTitle);
+
+        await store.SetCollectionAsync(
+            source.Id,
+            "plan-key",
+            AudiobookCollectionHandling.SeparateBooks,
+            "Zecharia Sitchin",
+            "Earth Chronicles");
+        await store.SetSeriesAsync(source.Id, "plan-key", "Earth Chronicles", 6);
+
+        saved = await store.LoadAsync(source.Id);
+        Assert.Equal(AudiobookCollectionHandling.SeparateBooks, saved["plan-key"].CollectionHandling);
+        Assert.Equal("Earth Chronicles", saved["plan-key"].SeriesName);
+        Assert.Equal(6, saved["plan-key"].SeriesPosition);
+
+        await store.SetGenreAsync(source.Id, "plan-key", null);
+
+        saved = await store.LoadAsync(source.Id);
+        Assert.Null(saved["plan-key"].GenreCategory);
+        Assert.Equal("Zecharia Sitchin", saved["plan-key"].CanonicalAuthor);
+
+        await store.SetIdentityAsync(source.Id, "plan-key", null, null);
+
+        Assert.Single(await store.LoadAsync(source.Id));
+
+        await store.SetCollectionAsync(
+            source.Id,
+            "plan-key",
+            AudiobookCollectionHandling.Automatic,
+            null,
+            null);
+
+        Assert.Empty(await store.LoadAsync(source.Id));
+    }
+
+    [Fact]
     public async Task CompletedAnalysisAndMetadataCache_RoundTripAndRejectChangedMedia()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
@@ -154,6 +217,10 @@ public sealed class AudiobookAnalysisStoreTests
             AudiobookBatchDecision.Approved,
             batchDecisions[organisationProposal.PlanKey].Decision);
         Assert.Equal(item.Id, Assert.Single(Assert.Single(saved.Candidates).Parts).MediaItem.Id);
+
+        item.MarkMissing(now.AddMinutes(1));
+
+        Assert.Null(await store.LoadCompletedAnalysisAsync(source.Id, [item]));
 
         item.Refresh(
             item.FullPath,

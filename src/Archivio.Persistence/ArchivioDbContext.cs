@@ -16,6 +16,8 @@ public sealed class ArchivioDbContext(DbContextOptions<ArchivioDbContext> option
         Set<AudiobookOrganisationProposalEntity>();
     internal DbSet<AudiobookBatchDecisionEntity> AudiobookBatchDecisions =>
         Set<AudiobookBatchDecisionEntity>();
+    internal DbSet<AudiobookReviewOverrideEntity> AudiobookReviewOverrides =>
+        Set<AudiobookReviewOverrideEntity>();
     internal DbSet<AudiobookExecutionRunEntity> AudiobookExecutionRuns =>
         Set<AudiobookExecutionRunEntity>();
     internal DbSet<AudiobookExecutionOperationEntity> AudiobookExecutionOperations =>
@@ -162,6 +164,23 @@ public sealed class ArchivioDbContext(DbContextOptions<ArchivioDbContext> option
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<AudiobookReviewOverrideEntity>(entity =>
+        {
+            entity.ToTable("AudiobookReviewOverrides");
+            entity.HasKey(x => new { x.LibrarySourceId, x.PlanKey });
+            entity.Property(x => x.PlanKey).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.GenreCategory).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.CanonicalAuthor).HasMaxLength(200);
+            entity.Property(x => x.CanonicalTitle).HasMaxLength(300);
+            entity.Property(x => x.CollectionHandling).IsRequired();
+            entity.Property(x => x.SeriesName).HasMaxLength(200);
+            entity.Property(x => x.UpdatedAtUtc).IsRequired();
+            entity.HasOne<LibrarySource>()
+                .WithMany()
+                .HasForeignKey(x => x.LibrarySourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<AudiobookExecutionRunEntity>(entity =>
         {
             entity.ToTable("AudiobookExecutionRuns");
@@ -194,6 +213,7 @@ public sealed class ArchivioDbContext(DbContextOptions<ArchivioDbContext> option
             entity.Property(x => x.SourceSizeBytes).IsRequired();
             entity.Property(x => x.SourceModifiedAtUtc).IsRequired();
             entity.Property(x => x.ErrorMessage).HasMaxLength(2048);
+            entity.Property(x => x.OriginalMetadataJson);
             entity.HasIndex(x => new { x.RunId, x.SortOrder }).IsUnique();
             entity.HasOne(x => x.Run)
                 .WithMany(x => x.Operations)

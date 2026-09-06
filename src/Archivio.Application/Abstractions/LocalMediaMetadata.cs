@@ -38,7 +38,9 @@ public sealed record LocalMediaMetadata(
     string? CodecDescription,
     bool HasEmbeddedArtwork,
     IReadOnlyList<string> SourceHints,
-    IReadOnlyList<string> Warnings)
+    IReadOnlyList<string> Warnings,
+    uint? TrackCount = null,
+    string? SeriesName = null)
 {
     public bool WasReadSuccessfully => Warnings.Count == 0 ||
         Title.HasValue || Author.HasValue || Duration is not null;
@@ -79,7 +81,13 @@ public sealed record LocalMediaMetadata(
         {
             var values = new List<string>();
             if (Year is not null) values.Add($"Year {Year}");
-            if (TrackNumber is not null) values.Add($"Track {TrackNumber}");
+            if (TrackNumber is not null)
+            {
+                values.Add(TrackCount is not null
+                    ? $"Track {TrackNumber} of {TrackCount}"
+                    : $"Track {TrackNumber}");
+            }
+            if (!string.IsNullOrWhiteSpace(SeriesName)) values.Add($"Series {SeriesName}");
             return values.Count == 0 ? "Year and track unavailable" : string.Join(" · ", values);
         }
     }
