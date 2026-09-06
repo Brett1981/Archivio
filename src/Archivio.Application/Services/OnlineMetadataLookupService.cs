@@ -27,7 +27,10 @@ public sealed partial class OnlineMetadataLookupService(
 
         foreach (var candidate in eligible)
         {
-            var signature = OnlineMetadataIdentity.CreateInputSignature(candidate.Title, candidate.Author);
+            var lookupIdentity = CreateLookupIdentity(candidate);
+            var signature = OnlineMetadataIdentity.CreateInputSignature(
+                lookupIdentity.Title,
+                lookupIdentity.Author);
             inputSignatures[candidate.CandidateKey] = signature;
             if (cache.TryGetValue(candidate.CandidateKey, out var cached) &&
                 cached.InputSignature == signature &&
@@ -37,7 +40,6 @@ public sealed partial class OnlineMetadataLookupService(
             }
             else
             {
-                var lookupIdentity = CreateLookupIdentity(candidate);
                 uncachedQueries.Add(new OnlineMetadataQuery(
                     candidate.CandidateKey,
                     lookupIdentity.Title,
@@ -159,6 +161,7 @@ public sealed partial class OnlineMetadataLookupService(
 
     private static bool NeedsOnlineLookup(AudiobookCandidateGroup candidate) =>
         candidate.NeedsReview ||
+        candidate.Parts.Any(part => !part.Metadata.HasEmbeddedArtwork) ||
         string.IsNullOrWhiteSpace(candidate.Author) ||
         string.Equals(
             candidate.OrganisationProposal?.GenreCategory,

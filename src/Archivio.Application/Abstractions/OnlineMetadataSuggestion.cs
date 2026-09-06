@@ -49,7 +49,7 @@ public static partial class OnlineMetadataIdentity
 {
     public static string CreateInputSignature(string title, string? author)
     {
-        const string lookupAlgorithmVersion = "online-lookup-v4";
+        const string lookupAlgorithmVersion = "online-lookup-v5";
         var value = $"{lookupAlgorithmVersion}|{Normalize(title)}|{Normalize(author ?? string.Empty)}";
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
     }

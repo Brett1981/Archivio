@@ -252,9 +252,41 @@ public sealed class OnlineMetadataLookupServiceTests
     }
 
     [Fact]
-    public async Task EnrichCandidates_DoesNotSearchCleanPlanWithReliableGenre()
+    public async Task EnrichCandidates_SearchesCleanPlanWhenArtworkIsMissing()
     {
         var candidate = CreateCandidate("Dune", "Frank Herbert", 1m) with
+        {
+            OrganisationProposal = CreateProposal(
+                "dune",
+                "Frank Herbert",
+                "Dune",
+                isPrimary: true,
+                genre: "Science Fiction")
+        };
+        var provider = new StubBookMetadataProvider
+        {
+            Results =
+            [
+                CreateResult("/works/OL1W", "Dune", "Frank Herbert") with
+                {
+                    CoverUrl = "https://covers.openlibrary.org/b/id/123-L.jpg?default=false"
+                }
+            ]
+        };
+        var service = new OnlineMetadataLookupService(provider, new StubAnalysisStore());
+
+        var result = await service.EnrichCandidatesAsync(
+            candidate.Parts[0].MediaItem.LibrarySourceId,
+            [candidate]);
+
+        Assert.Equal(1, provider.CallCount);
+        Assert.NotNull(Assert.Single(result).OnlineSuggestion?.CoverUrl);
+    }
+
+    [Fact]
+    public async Task EnrichCandidates_DoesNotSearchCleanPlanThatAlreadyHasEmbeddedArtwork()
+    {
+        var candidate = CreateCandidate("Dune", "Frank Herbert", 1m, hasEmbeddedArtwork: true) with
         {
             OrganisationProposal = CreateProposal(
                 "dune",
@@ -324,6 +356,9 @@ public sealed class OnlineMetadataLookupServiceTests
         Assert.Equal("Open Library", book.ProviderName);
         Assert.Equal(1813, book.FirstPublishedYear);
         Assert.Equal("https://openlibrary.org/works/OL66554W", book.SourceUrl);
+        Assert.Equal(
+            "https://covers.openlibrary.org/b/id/123-L.jpg?default=false",
+            book.CoverUrl);
         Assert.Contains("search.json", handler.RequestUri!.AbsoluteUri, StringComparison.Ordinal);
         Assert.Contains("fields=key", handler.RequestUri.AbsoluteUri, StringComparison.Ordinal);
     }
@@ -350,7 +385,8 @@ public sealed class OnlineMetadataLookupServiceTests
         string? author,
         decimal confidence,
         Guid? sourceId = null,
-        IReadOnlyList<string>? candidateWarnings = null)
+        IReadOnlyList<string>? candidateWarnings = null,
+        bool hasEmbeddedArtwork = false)
     {
         var now = DateTime.UtcNow;
         var actualSourceId = sourceId ?? Guid.NewGuid();
@@ -376,7 +412,7 @@ public sealed class OnlineMetadataLookupServiceTests
             null,
             null,
             null,
-            false,
+            hasEmbeddedArtwork,
             [],
             []);
         return new AudiobookCandidateGroup(

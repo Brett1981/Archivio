@@ -590,7 +590,7 @@ public sealed partial class AudiobookOrganisationService(
                     SeriesName: seriesName,
                     SeriesPosition: seriesPosition,
                     CollectionPlanKey: collectionContext?.PlanKey,
-                    CoverUrl: onlineSuggestion?.CoverUrl);
+                    CoverUrl: SelectCoverUrl(onlineSuggestion, canonicalAuthor, canonicalTitle));
                 var signature = CreateInputSignature(candidate, groupCandidateKeys, proposal);
                 result[candidate.CandidateKey] = new AudiobookOrganisationCacheEntry(
                     candidate.CandidateKey,
@@ -1104,6 +1104,28 @@ public sealed partial class AudiobookOrganisationService(
             "This proposal is read-only; no media file has been changed."
         };
         return reasons;
+    }
+
+    private static string? SelectCoverUrl(
+        OnlineMetadataSuggestion? suggestion,
+        string canonicalAuthor,
+        string canonicalTitle)
+    {
+        if (string.IsNullOrWhiteSpace(suggestion?.CoverUrl) ||
+            !string.Equals(Normalize(suggestion.Title), Normalize(canonicalTitle), StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var suggestedAuthor = suggestion.Authors.Count == 0
+            ? string.Empty
+            : string.Join(" & ", suggestion.Authors.Take(2));
+        return string.Equals(
+            Normalize(suggestedAuthor),
+            Normalize(canonicalAuthor),
+            StringComparison.Ordinal)
+            ? suggestion.CoverUrl
+            : null;
     }
 
     private static IReadOnlyList<string> BuildWarnings(

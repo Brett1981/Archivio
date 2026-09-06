@@ -64,6 +64,43 @@ public sealed class AudiobookOrganisationServiceTests
     }
 
     [Fact]
+    public async Task ManualIdentityCorrection_DropsArtworkFromThePreviousBookSuggestion()
+    {
+        var sourceId = Guid.NewGuid();
+        var candidate = CreateCandidate(
+            sourceId,
+            "It",
+            "Stephen King",
+            confidence: 1m,
+            genre: "Horror") with
+        {
+            OnlineSuggestion = CreateSuggestion(
+                "/works/OL1W",
+                "It",
+                "Stephen King",
+                1986,
+                ["Horror"]) with
+            {
+                CoverUrl = "https://covers.openlibrary.org/b/id/123-L.jpg?default=false"
+            }
+        };
+        var service = new AudiobookOrganisationService(
+            new StubOrganisationStore(),
+            new StubReviewOverrideStore());
+        var initial = await service.PrepareProposalsAsync(sourceId, [candidate]);
+        var planKey = Assert.Single(initial).OrganisationProposal!.PlanKey;
+
+        var corrected = await service.SetIdentityOverrideAsync(
+            sourceId,
+            initial,
+            planKey,
+            "Agatha Christie",
+            "A Murder Is Announced");
+
+        Assert.Null(Assert.Single(corrected).OrganisationProposal?.CoverUrl);
+    }
+
+    [Fact]
     public async Task GenreOverride_PersistsRevalidatesAndCanBeRestoredToAutomatic()
     {
         var sourceId = Guid.NewGuid();

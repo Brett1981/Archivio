@@ -318,8 +318,7 @@ public sealed partial class AudiobookBatchPlanningService(
         int totalCount)
     {
         var metadata = part.Metadata;
-        if (!string.IsNullOrWhiteSpace(proposal.CoverUrl) &&
-            (!metadata.HasEmbeddedArtwork || !metadata.HasSidecarArtwork) ||
+        if (!string.IsNullOrWhiteSpace(proposal.CoverUrl) && !metadata.HasEmbeddedArtwork ||
             !MetadataEquals(metadata.Author.Value, proposal.CanonicalAuthor) ||
             !MetadataEquals(metadata.Album.Value, proposal.CanonicalTitle) ||
             !MetadataEquals(metadata.Genre.Value, proposal.GenreCategory) ||
