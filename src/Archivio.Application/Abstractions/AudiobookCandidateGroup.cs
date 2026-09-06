@@ -38,10 +38,28 @@ public sealed record AudiobookCandidateGroup(
     public string ReviewTitle => OrganisationProposal?.CanonicalTitle ?? Title;
     public decimal ReviewConfidence => OrganisationProposal?.Confidence ?? Confidence;
     public int ReviewSourceFileCount => OrganisationProposal?.SourceFileCount ?? Parts.Count;
+    public bool IsAutomationSafe =>
+        IsPrimaryOrganisationPlan &&
+        ReviewConfidence == 1m &&
+        !NeedsReview &&
+        OrganisationProposal is
+        {
+            ReadyForAutomaticHandling: true,
+            Warnings.Count: 0
+        } &&
+        BatchPlan is
+        {
+            CanApprove: true,
+            Warnings.Count: 0
+        };
+    public bool CanBulkApprove =>
+        IsAutomationSafe &&
+        BatchPlan?.Decision != AudiobookBatchDecision.Approved;
     public bool RequiresIndividualApproval =>
         IsPrimaryOrganisationPlan &&
         ReviewSourceFileCount > 1 &&
-        BatchPlan?.ValidationStatus == AudiobookBatchValidationStatus.Ready;
+        BatchPlan?.CanApprove == true &&
+        !IsAutomationSafe;
     public bool IsIndividualApprovalPending =>
         RequiresIndividualApproval &&
         BatchPlan?.Decision != AudiobookBatchDecision.Approved;
@@ -50,19 +68,6 @@ public sealed record AudiobookCandidateGroup(
         (OrganisationProposal is not null
             ? !OrganisationProposal.ReadyForAutomaticHandling
             : NeedsReview);
-    public bool CanBulkApprove =>
-        IsPrimaryOrganisationPlan &&
-        ReviewSourceFileCount == 1 &&
-        ReviewConfidence == 1m &&
-        !ReviewItemNeedsReview &&
-        Warnings.Count == 0 &&
-        OrganisationProposal?.Warnings.Count == 0 &&
-        BatchPlan is
-        {
-            CanApprove: true,
-            Decision: not AudiobookBatchDecision.Approved,
-            Warnings.Count: 0
-        };
     public string ReviewItemStatusLabel => ReviewItemNeedsReview ? "Needs review" : "High confidence";
     public string ReviewItemSummary => OrganisationProposal is null
         ? TypeLabel

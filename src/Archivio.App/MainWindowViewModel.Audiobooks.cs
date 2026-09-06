@@ -78,7 +78,7 @@ public sealed partial class MainWindowViewModel
     public int BulkApprovalEligibleCount => AudiobookCandidates.Count(candidate => candidate.CanBulkApprove);
     public int IndividualApprovalRequiredCount => AudiobookCandidates.Count(candidate =>
         candidate.IsIndividualApprovalPending);
-    public string ApproveSafeBatchLabel => $"Bulk approve safe single files ({BulkApprovalEligibleCount:N0})";
+    public string ApproveSafeBatchLabel => $"Bulk approve automation-safe plans ({BulkApprovalEligibleCount:N0})";
     public int BatchApprovedCount => AudiobookCandidates.Count(candidate =>
         candidate.IsPrimaryOrganisationPlan &&
         candidate.BatchPlan?.Decision == AudiobookBatchDecision.Approved);
@@ -1210,7 +1210,7 @@ public sealed partial class MainWindowViewModel
         await ApplyBatchDecisionAsync(
             keys,
             AudiobookBatchDecision.Approved,
-            $"Bulk approved {keys.Count:N0} clean 100% single-file plan{(keys.Count == 1 ? string.Empty : "s")}");
+            $"Bulk approved {keys.Count:N0} clean 100%-confidence plan{(keys.Count == 1 ? string.Empty : "s")}");
     }
 
     [RelayCommand]
@@ -1290,8 +1290,8 @@ public sealed partial class MainWindowViewModel
         var bulkSafe = candidates.Count(candidate => candidate.CanBulkApprove);
         var individualReview = candidates.Count(candidate =>
             candidate.IsIndividualApprovalPending);
-        BatchPlanningStatus = $"{prefix}: {bulkSafe:N0} bulk-safe single files · " +
-                              $"{individualReview:N0} multi-file plans need individual approval · " +
+        BatchPlanningStatus = $"{prefix}: {bulkSafe:N0} automation-safe plans · " +
+                              $"{individualReview:N0} multipart plans need individual approval · " +
                               $"{ready:N0} execution-valid · {alreadyOrganised:N0} already organised · " +
                               $"{metadataReview:N0} metadata review · {conflicts:N0} conflicts · " +
                               $"{approved:N0} approved · no files changed";

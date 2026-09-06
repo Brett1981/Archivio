@@ -277,8 +277,8 @@
                         <TextBlock Foreground="{StaticResource MetaroqAqua}" Margin="0,0,14,0"><Run Text="{Binding AlreadyOrganisedPlanCount, Mode=OneWay}" /><Run Text=" already organised" /></TextBlock>
                         <TextBlock Foreground="#F59E0B" Margin="0,0,14,0"><Run Text="{Binding MetadataReviewPlanCount, Mode=OneWay}" /><Run Text=" metadata review" /></TextBlock>
                         <TextBlock Foreground="#F59E0B" Margin="0,0,14,0"><Run Text="{Binding BatchConflictCount, Mode=OneWay}" /><Run Text=" conflicts" /></TextBlock>
-                        <TextBlock Foreground="{StaticResource MetaroqAqua}" Margin="0,0,14,0"><Run Text="{Binding BulkApprovalEligibleCount, Mode=OneWay}" /><Run Text=" bulk-safe singles" /></TextBlock>
-                        <TextBlock Foreground="#F59E0B" Margin="0,0,14,0"><Run Text="{Binding IndividualApprovalRequiredCount, Mode=OneWay}" /><Run Text=" multi-file review" /></TextBlock>
+                        <TextBlock Foreground="{StaticResource MetaroqAqua}" Margin="0,0,14,0"><Run Text="{Binding BulkApprovalEligibleCount, Mode=OneWay}" /><Run Text=" automation-safe" /></TextBlock>
+                        <TextBlock Foreground="#F59E0B" Margin="0,0,14,0"><Run Text="{Binding IndividualApprovalRequiredCount, Mode=OneWay}" /><Run Text=" multipart review" /></TextBlock>
                         <TextBlock Foreground="{StaticResource MetaroqSand}" Margin="0,0,14,0"><Run Text="{Binding BatchApprovedCount, Mode=OneWay}" /><Run Text=" approved" /></TextBlock>
                         <TextBlock Foreground="{StaticResource MetaroqAqua}" Margin="0,0,14,0"><Run Text="{Binding BatchExecutableOperationCount, Mode=OneWay}" /><Run Text=" executable files" /></TextBlock>
                         <TextBlock Foreground="#F59E0B"><Run Text="{Binding BatchBlockedCount, Mode=OneWay}" /><Run Text=" blocked" /></TextBlock>
@@ -328,7 +328,7 @@
                         </UniformGrid>
                         <UniformGrid Columns="3" Margin="0,2,0,0">
                             <Button Content="{Binding ApproveSafeBatchLabel}" Command="{Binding ApproveSafeBatchCommand}" Padding="8,5" Margin="0,0,8,0"
-                                    ToolTip="Approve only clean, 100%-confidence single-file audiobooks. Multi-file plans always require individual review." />
+                                    ToolTip="Approve clean, 100%-confidence plans. Multipart books qualify only after Metaroq verifies a complete order, consistent identity, and conflict-free destination." />
                             <Button Content="Defer blocked" Command="{Binding DeferBlockedBatchCommand}" Padding="8,5" Margin="0,0,8,0"
                                     ToolTip="Mark review-required and conflicting plans as deferred" />
                             <Button Content="Reset decisions" Command="{Binding ResetBatchDecisionsCommand}" Padding="8,5"

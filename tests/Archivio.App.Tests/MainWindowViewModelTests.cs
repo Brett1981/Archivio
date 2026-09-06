@@ -118,7 +118,7 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
-    public async Task BulkApproval_OnlyApprovesCleanPerfectSingleFilePlans()
+    public async Task BulkApproval_ApprovesCleanPerfectSingleAndMultipartPlans()
     {
         var source = new LibrarySource(
             "Audiobooks",
@@ -138,6 +138,7 @@ public sealed class MainWindowViewModelTests
             1m,
             AudiobookBatchValidationStatus.NoChange);
         var multiFile = CreateBulkApprovalCandidate("multi", 7, 1m);
+        var multiFileNeedsJudgement = CreateBulkApprovalCandidate("multi-not-perfect", 7, 0.99m);
         var lessThanPerfect = CreateBulkApprovalCandidate("not-perfect", 1, 0.99m);
         var reviewRequired = CreateBulkApprovalCandidate(
             "review-required",
@@ -145,34 +146,41 @@ public sealed class MainWindowViewModelTests
             1m,
             AudiobookBatchValidationStatus.ReviewRequired);
         viewModel.AudiobookCandidates =
-            [eligible, eligibleNoChange, multiFile, lessThanPerfect, reviewRequired];
+            [eligible, eligibleNoChange, multiFile, multiFileNeedsJudgement, lessThanPerfect, reviewRequired];
 
-        Assert.Equal(2, viewModel.BulkApprovalEligibleCount);
+        Assert.Equal(3, viewModel.BulkApprovalEligibleCount);
         Assert.Equal(1, viewModel.IndividualApprovalRequiredCount);
-        Assert.True(multiFile.RequiresIndividualApproval);
-        Assert.True(multiFile.ReviewItemNeedsReview);
-        Assert.Equal("Ready for individual approval", multiFile.BatchApprovalValidationLabel);
+        Assert.False(multiFile.RequiresIndividualApproval);
+        Assert.False(multiFile.ReviewItemNeedsReview);
+        Assert.Equal("Ready for batch approval", multiFile.BatchApprovalValidationLabel);
+        Assert.True(multiFileNeedsJudgement.RequiresIndividualApproval);
+        Assert.True(multiFileNeedsJudgement.ReviewItemNeedsReview);
+        Assert.Equal("Ready for individual approval", multiFileNeedsJudgement.BatchApprovalValidationLabel);
 
         await viewModel.ApproveSafeBatchCommand.ExecuteAsync(null);
 
         Assert.Equal(AudiobookBatchDecision.Approved, Assert.Single(batchPlanningService.Decisions));
         Assert.Equal(
-            ["eligible", "eligible-no-change"],
+            ["eligible", "eligible-no-change", "multi"],
             Assert.Single(batchPlanningService.PlanKeys).Order(StringComparer.Ordinal).ToList());
         Assert.Equal(0, viewModel.BulkApprovalEligibleCount);
         Assert.Equal(
             AudiobookBatchDecision.Pending,
-            viewModel.AudiobookCandidates.Single(candidate => candidate.BatchPlan?.PlanKey == "multi").BatchPlan?.Decision);
+            viewModel.AudiobookCandidates.Single(candidate => candidate.BatchPlan?.PlanKey == "multi-not-perfect").BatchPlan?.Decision);
+        var bulkApprovedMultiFile = viewModel.AudiobookCandidates.Single(
+            candidate => candidate.BatchPlan?.PlanKey == "multi");
+        Assert.True(bulkApprovedMultiFile.IsAutomationSafe);
+        Assert.False(bulkApprovedMultiFile.RequiresIndividualApproval);
 
         viewModel.SelectedAudiobookCandidate = viewModel.AudiobookCandidates.Single(
-            candidate => candidate.BatchPlan?.PlanKey == "multi");
+            candidate => candidate.BatchPlan?.PlanKey == "multi-not-perfect");
         Assert.True(viewModel.ApproveSelectedBatchCommand.CanExecute(null));
 
         await viewModel.ApproveSelectedBatchCommand.ExecuteAsync(null);
 
-        Assert.Equal("multi", Assert.Single(batchPlanningService.PlanKeys[1]));
+        Assert.Equal("multi-not-perfect", Assert.Single(batchPlanningService.PlanKeys[1]));
         var approvedMultiFile = viewModel.AudiobookCandidates.Single(
-            candidate => candidate.BatchPlan?.PlanKey == "multi");
+            candidate => candidate.BatchPlan?.PlanKey == "multi-not-perfect");
         Assert.False(approvedMultiFile.IsIndividualApprovalPending);
         Assert.False(approvedMultiFile.ReviewItemNeedsReview);
         Assert.Equal("Individually approved", approvedMultiFile.BatchApprovalValidationLabel);
