@@ -569,12 +569,8 @@ public sealed partial class MainWindowViewModel
         !IsAudiobookReviewCorrectionRunning &&
         SelectedSource is not null &&
         SelectedAudiobookCandidate?.OrganisationProposal is
-        {
-            UsesManualAuthor: true
-        } or
-        {
-            UsesManualTitle: true
-        };
+    { UsesManualAuthor: true } or
+    { UsesManualTitle: true };
 
     [RelayCommand(CanExecute = nameof(CanResetSelectedIdentityOverride))]
     private Task ResetSelectedIdentityOverrideAsync() => SetSelectedIdentityOverrideAsync(null, null);

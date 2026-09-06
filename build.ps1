@@ -9,16 +9,16 @@ function Invoke-DotNet {
     }
 }
 
-Write-Host 'Restoring Archivio...'
+Write-Host 'Restoring Metaroq...'
 Invoke-DotNet @('restore', 'Archivio.sln', '--configfile', 'NuGet.Config')
 
-Write-Host 'Building Archivio...'
+Write-Host 'Checking formatting...'
+Invoke-DotNet @('format', 'Archivio.sln', '--verify-no-changes', '--no-restore', '--verbosity', 'minimal')
+
+Write-Host 'Building Metaroq...'
 Invoke-DotNet @('build', 'Archivio.sln', '--configuration', 'Release', '--no-restore')
 
-Write-Host 'Running unit tests...'
-Invoke-DotNet @('test', 'tests/Archivio.UnitTests/Archivio.UnitTests.csproj', '--configuration', 'Release', '--no-build')
+Write-Host 'Running all tests...'
+Invoke-DotNet @('test', 'Archivio.sln', '--configuration', 'Release', '--no-build')
 
-Write-Host 'Running integration tests...'
-Invoke-DotNet @('test', 'tests/Archivio.IntegrationTests/Archivio.IntegrationTests.csproj', '--configuration', 'Release', '--no-build')
-
-Write-Host 'Archivio Milestone 1 build completed successfully.' -ForegroundColor Green
+Write-Host 'Metaroq validation completed successfully.' -ForegroundColor Green

@@ -11,12 +11,14 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
+using Serilog.Events;
 
 namespace Archivio.App;
 
 public partial class App : System.Windows.Application
 {
     private IHost? _host;
+    private IServiceScope? _applicationScope;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
@@ -29,10 +31,13 @@ public partial class App : System.Windows.Application
 
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Information()
+                .MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Command", LogEventLevel.Warning)
                 .WriteTo.File(
                     Path.Combine(bootstrapPaths.LogsDirectory, "metaroq-.log"),
                     rollingInterval: RollingInterval.Day,
-                    retainedFileCountLimit: 14)
+                    retainedFileCountLimit: 14,
+                    fileSizeLimitBytes: 10 * 1024 * 1024,
+                    rollOnFileSizeLimit: true)
                 .CreateLogger();
 
             _host = Host.CreateDefaultBuilder(e.Args)
@@ -53,15 +58,16 @@ public partial class App : System.Windows.Application
                     services.AddSingleton<IAudiobookMetadataWriter, TagLibAudiobookMetadataWriter>();
                     services.AddSingleton<IFolderPickerService, FolderPickerService>();
                     services.AddSingleton<IAudiobookExecutionConfirmationService, AudiobookExecutionConfirmationService>();
-                    services.AddSingleton<MainWindowViewModel>();
-                    services.AddSingleton<MainWindow>();
+                    services.AddScoped<MainWindowViewModel>();
+                    services.AddScoped<MainWindow>();
                 })
                 .Build();
 
             await _host.StartAsync();
             await _host.Services.GetRequiredService<IDatabaseInitializer>().InitializeAsync();
 
-            var mainWindow = _host.Services.GetRequiredService<MainWindow>();
+            _applicationScope = _host.Services.CreateScope();
+            var mainWindow = _applicationScope.ServiceProvider.GetRequiredService<MainWindow>();
             mainWindow.Show();
         }
         catch (Exception exception)
@@ -77,6 +83,8 @@ public partial class App : System.Windows.Application
         if (_host is not null)
         {
             await _host.StopAsync(TimeSpan.FromSeconds(5));
+            _applicationScope?.Dispose();
+            _applicationScope = null;
             _host.Dispose();
         }
 

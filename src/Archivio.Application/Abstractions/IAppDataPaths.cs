@@ -5,6 +5,7 @@ public interface IAppDataPaths
     string RootDirectory { get; }
     string DataDirectory { get; }
     string LogsDirectory { get; }
+    string BackupsDirectory { get; }
     string DatabasePath { get; }
     void EnsureCreated();
 }

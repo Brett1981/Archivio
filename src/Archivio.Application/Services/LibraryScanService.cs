@@ -87,16 +87,25 @@ public sealed class LibraryScanService(
                 discovery.Files.Count, processedCount, addedCount, refreshedCount, missingCount, startedAtUtc);
         }
 
-        foreach (var existing in existingItems)
+        if (discovery.Issues.Count == 0)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!discoveredPaths.Contains(existing.FullPath))
+            foreach (var existing in existingItems)
             {
-                existing.MarkMissing(discovery.CompletedAtUtc);
-                missingCount++;
-                Report(progress, source.Id, LibraryScanStage.Reconciling, "Marking missing files", existing.FullPath,
-                    discovery.Files.Count, processedCount, addedCount, refreshedCount, missingCount, startedAtUtc);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!discoveredPaths.Contains(existing.FullPath))
+                {
+                    existing.MarkMissing(discovery.CompletedAtUtc);
+                    missingCount++;
+                    Report(progress, source.Id, LibraryScanStage.Reconciling, "Marking missing files", existing.FullPath,
+                        discovery.Files.Count, processedCount, addedCount, refreshedCount, missingCount, startedAtUtc);
+                }
             }
+        }
+        else
+        {
+            Report(progress, source.Id, LibraryScanStage.Reconciling,
+                "Discovery was incomplete; preserving existing missing-file state", null,
+                discovery.Files.Count, processedCount, addedCount, refreshedCount, missingCount, startedAtUtc);
         }
 
         Report(progress, source.Id, LibraryScanStage.Saving, "Saving catalogue changes", null,

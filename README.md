@@ -2,41 +2,26 @@
 
 **Media that finally makes sense.**
 
-Metaroq is a personal media-intelligence application for safely cataloguing, understanding, and eventually organising complex collections.
+Metaroq is a Windows media-intelligence application for safely cataloguing, understanding, reviewing, and organising complex personal collections.
 
-## Milestone 1 — Production foundation
+## Current capabilities
 
-This milestone provides:
+Version 0.2 provides:
 
-- .NET 10 WPF shell
-- Generic Host dependency injection
-- MVVM with CommunityToolkit.Mvvm
-- structured file logging with Serilog
-- SQLite through EF Core
-- an initial EF migration
-- clean project boundaries
-- unit and integration test projects
-- repository-level NuGet isolation
-- fail-fast PowerShell scripts
+- a .NET 10 WPF application using Generic Host, dependency injection, and MVVM
+- persistent library sources and media catalogues in SQLite
+- background, cancellable scans for local and network folders
+- type-specific discovery for movies, television, music, audiobooks, documents, and photos
+- resilient audiobook metadata analysis with saved checkpoints
+- embedded-tag, filename, and folder evidence with visible provenance
+- rate-limited Open Library enrichment with positive and negative caching
+- item-first review, manual corrections, collection splitting, and series handling
+- whole-library dry runs with conflict detection and approval controls
+- guarded move, rename, and embedded-metadata execution
+- execution journalling, rollback, and interrupted-run recovery
+- automatic SQLite safety backups before migrations and media execution
 
-No user media is scanned or modified in this milestone.
-
-## Milestone 2 — Library sources
-
-This milestone adds the first complete user-facing Metaroq workflow:
-
-- persistent library-source records in SQLite
-- source types for mixed media, movies, television, music, audiobooks, documents, and photos
-- add, edit, enable/disable, and delete operations
-- native Windows folder selection
-- folder-existence validation
-- normalized duplicate-path protection
-- deterministic source ordering
-- WPF library-source management UI
-- application-service unit tests
-- SQLite repository integration tests
-
-Metaroq stores only the selected folder metadata during this milestone. It does not scan, rename, move, delete, or otherwise modify files inside a library source.
+Scanning and analysis are catalogue-only operations. Media files are changed only through an explicitly confirmed, approved execution plan.
 
 ## Audiobook batch dry run
 
@@ -52,7 +37,7 @@ Metaroq distinguishes multipart chapter sets from collections of complete books 
 
 Approved, conflict-free move and rename plans can now be executed after an explicit confirmation. Immediately before execution, Metaroq revalidates the library boundary, source existence, source size and modified time, unique targets, and destination availability. Existing destination files are never overwritten.
 
-Every run and file operation is written to a SQLite execution journal before media changes begin. The original embedded tags are journalled before Metaroq writes the approved title, author, album, genre, year, series, and track order. Progress is checkpointed after each operation. If an operation fails or the user cancels, completed moves and metadata changes are rolled back in reverse order where that can be done safely. Interrupted runs are detected when the source is reopened and must be recovered before another execution can start.
+Before execution, Metaroq creates a consistent SQLite backup. Every run and file operation is then written to an execution journal before media changes begin. The original embedded tags are journalled before Metaroq writes the approved title, author, album, genre, year, series, and track order. Progress is checkpointed after each operation. If an operation fails or the user cancels, completed moves and metadata changes are rolled back in reverse order where that can be done safely. Interrupted runs are detected when the source is reopened and must be recovered before another execution can start.
 
 This milestone supports move, rename, and journalled metadata updates. Audio combining, deletion, and unattended execution remain disabled.
 
@@ -68,13 +53,15 @@ This milestone supports move, rename, and journalled metadata updates. Audio com
 .\build.ps1
 ```
 
+The validation script restores packages, checks formatting, builds Release with warnings treated as errors, and runs every unit, integration, and view-model test. The same sequence runs in GitHub Actions.
+
 ## Run
 
 ```powershell
 .\run.ps1
 ```
 
-Application data remains under `%LOCALAPPDATA%\Archivio` during the first Metaroq rebrand phase. This compatibility path intentionally preserves existing catalogues, saved analysis, organisation proposals, and dry-run decisions. A later technical migration can move the data to `%LOCALAPPDATA%\Metaroq` with an explicit backup and rollback path.
+Application data remains under `%LOCALAPPDATA%\Archivio` during the first Metaroq rebrand phase. This compatibility path intentionally preserves existing catalogues, saved analysis, organisation proposals, dry-run decisions, and execution journals. Safety backups are stored under `%LOCALAPPDATA%\Archivio\backups`; the newest 20 are retained. A later technical migration can move the data to `%LOCALAPPDATA%\Metaroq` with an explicit backup and rollback path.
 
 ## Architecture
 
@@ -83,29 +70,21 @@ Application data remains under `%LOCALAPPDATA%\Archivio` during the first Metaro
 - `Archivio.Application`: use-case contracts and application services
 - `Archivio.Infrastructure`: operating-system and external-service adapters
 - `Archivio.Persistence`: EF Core and SQLite
-- `Archivio.Media`: future media processing implementation
-- `Archivio.Metadata`: future metadata provider implementation
-- `Archivio.Workers`: future background orchestration
+- `Archivio.Media`: safe file discovery and media scanning adapters
+- `Archivio.Metadata`: embedded metadata reading, inference, and guarded tag writing
+- `Archivio.Workers`: background scan queue and cancellation orchestration
 - `Archivio.Shared`: cross-cutting primitives only
 
-## Milestone 2 review
+Internal assembly and namespace names remain `Archivio` while the product is rebranded incrementally. This is intentional until the application-data migration and compatibility plan are complete.
 
-- [ ] Restore succeeds with existing machine NuGet feeds
-- [ ] Debug build succeeds with zero warnings
-- [ ] Release build succeeds with warnings treated as errors
-- [ ] All 23 unit tests pass
-- [ ] All 6 integration tests pass
-- [ ] WPF application opens
-- [ ] A library source can be added using the folder picker
-- [ ] A library source remains after restarting Metaroq
-- [ ] A library source can be edited and enabled or disabled
-- [ ] Duplicate normalized paths are rejected
-- [ ] Missing folders are rejected
-- [ ] A library source can be deleted
-- [ ] No files inside a selected source are modified
+## Current boundaries
 
-## Patch history
+- audio combining is not implemented
+- deletion is disabled
+- unattended media execution is disabled
+- no installer or signed desktop package is currently produced
+- a public-distribution licence has not yet been selected
 
-- 1.0.1: Kept the unit-test project isolated from the Windows-only WPF project.
-- 1.0.2: Added `Microsoft.Extensions.Options.DataAnnotations` for startup options validation.
-- 1.0.4: Added EF Core migration discovery metadata and strengthened migration integration coverage.
+## Development status
+
+The authoritative development branch is `feature/guarded-batch-execution`. Changes should pass `build.ps1` before they are committed or pushed. The next product milestone is stronger content identification followed by separately reviewed support for combining compatible multipart audiobooks and carefully controlled unattended organisation.

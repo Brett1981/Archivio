@@ -23,6 +23,7 @@ public sealed class AudiobookBatchExecutionServiceTests
             AudiobookExecutionOperationStatus.Completed,
             Assert.Single(fixture.Journal.Latest!.Operations).Status);
         Assert.Equal(1, fixture.Metadata.WriteCount);
+        Assert.Equal(1, fixture.Backups.BackupCount);
         Assert.False(string.IsNullOrWhiteSpace(
             Assert.Single(fixture.Journal.Latest.Operations).OriginalMetadataJson));
     }
@@ -287,6 +288,7 @@ public sealed class AudiobookBatchExecutionServiceTests
         };
         var journal = new TestJournalStore();
         var metadata = new TestMetadataWriter();
+        var backups = new TestDatabaseBackupService();
         return new ExecutionFixture(
             sourceId,
             root,
@@ -294,7 +296,8 @@ public sealed class AudiobookBatchExecutionServiceTests
             journal,
             candidate,
             metadata,
-            new AudiobookBatchExecutionService(journal, files, metadata));
+            backups,
+            new AudiobookBatchExecutionService(journal, files, metadata, backups));
     }
 
     private sealed record ExecutionFixture(
@@ -304,7 +307,21 @@ public sealed class AudiobookBatchExecutionServiceTests
         TestJournalStore Journal,
         AudiobookCandidateGroup Candidate,
         TestMetadataWriter Metadata,
+        TestDatabaseBackupService Backups,
         AudiobookBatchExecutionService Service);
+
+    private sealed class TestDatabaseBackupService : IDatabaseBackupService
+    {
+        public int BackupCount { get; private set; }
+
+        public Task<string?> CreateBackupAsync(
+            string reason,
+            CancellationToken cancellationToken = default)
+        {
+            BackupCount++;
+            return Task.FromResult<string?>("test-backup.db");
+        }
+    }
 
     private sealed class TestMetadataWriter : IAudiobookMetadataWriter
     {

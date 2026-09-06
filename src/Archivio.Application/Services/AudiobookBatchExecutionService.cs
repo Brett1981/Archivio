@@ -6,7 +6,8 @@ namespace Archivio.Application.Services;
 public sealed class AudiobookBatchExecutionService(
     IAudiobookExecutionJournalStore journalStore,
     IAudiobookFileOperator fileOperator,
-    IAudiobookMetadataWriter metadataWriter) : IAudiobookBatchExecutionService
+    IAudiobookMetadataWriter metadataWriter,
+    IDatabaseBackupService databaseBackupService) : IAudiobookBatchExecutionService
 {
     public async Task<AudiobookExecutionResult> ExecuteApprovedAsync(
         Guid librarySourceId,
@@ -46,6 +47,10 @@ public sealed class AudiobookBatchExecutionService(
                 null, null, 0, 0, 0,
                 "No approved file operations are ready to execute.");
         }
+
+        await databaseBackupService.CreateBackupAsync(
+            "before-audiobook-execution",
+            cancellationToken);
 
         var now = DateTime.UtcNow;
         var run = new AudiobookExecutionRunEntry(
