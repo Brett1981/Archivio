@@ -132,25 +132,319 @@ public sealed class AudiobookBatchExecutionServiceTests
     }
 
     [Fact]
-    public async Task ExecuteApproved_RefusesToOverwriteDestinationBeforeCreatingJournal()
+    public async Task ExecuteApproved_SkipsOccupiedDestinationWithoutOverwritingIt()
     {
         var fixture = CreateFixture(("Incoming\\Book.mp3", "Author\\Book\\Author - Book.mp3"));
         fixture.Files.AddFile(Path.Combine(fixture.Root, "Author\\Book\\Author - Book.mp3"));
 
-        var exception = await Assert.ThrowsAsync<IOException>(() =>
-            fixture.Service.ExecuteApprovedAsync(fixture.SourceId, fixture.Root, [fixture.Candidate]));
+        var result = await fixture.Service.ExecuteApprovedAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [fixture.Candidate]);
 
-        Assert.Contains("will not overwrite", exception.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Null(fixture.Journal.Latest);
+        Assert.True(result.Succeeded);
+        Assert.Equal(0, result.CompletedOperationCount);
+        Assert.Contains("skipped", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(AudiobookExecutionRunStatus.Completed, fixture.Journal.Latest?.Status);
+        Assert.Equal(
+            AudiobookExecutionOperationStatus.Failed,
+            Assert.Single(fixture.Journal.Latest!.Operations).Status);
         Assert.True(fixture.Files.FileExists(Path.Combine(fixture.Root, "Incoming\\Book.mp3")));
+        Assert.True(fixture.Files.FileExists(Path.Combine(
+            fixture.Root,
+            "Author\\Book\\Author - Book.mp3")));
+        Assert.Equal(0, fixture.Backups.BackupCount);
     }
 
     [Fact]
-    public async Task ExecuteApproved_RollsBackEarlierMovesWhenLaterMoveFails()
+    public async Task ExecuteApproved_SkipsFailedFileAndKeepsProcessingSeparateDestination()
+    {
+        var fixture = CreateFixture(
+            ("Incoming\\Part 1.mp3", "Author\\Book\\001 - Book.mp3"),
+            ("Incoming\\Part 2.mp3", "Author\\Book\\002 - Book.mp3"),
+            ("Incoming\\Part 3.mp3", "Author\\Book\\003 - Book.mp3"));
+        var destinationRoot = Path.Combine(
+            Path.GetTempPath(),
+            "Metaroq.Execution.Destination.Tests",
+            Guid.NewGuid().ToString("N"));
+        fixture.Files.AddDirectory(destinationRoot);
+        fixture.Files.PersistentSharingViolationSourcePath = Path.Combine(
+            fixture.Root,
+            "Incoming\\Part 2.mp3");
+
+        var result = await fixture.Service.ExecuteApprovedAsync(
+            fixture.SourceId,
+            fixture.Root,
+            destinationRoot,
+            [fixture.Candidate]);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(AudiobookExecutionRunStatus.Completed, result.Status);
+        Assert.Equal(2, result.CompletedOperationCount);
+        Assert.Equal(0, result.RolledBackOperationCount);
+        Assert.False(fixture.Files.FileExists(Path.Combine(fixture.Root, "Incoming\\Part 1.mp3")));
+        Assert.True(fixture.Files.FileExists(Path.Combine(fixture.Root, "Incoming\\Part 2.mp3")));
+        Assert.False(fixture.Files.FileExists(Path.Combine(fixture.Root, "Incoming\\Part 3.mp3")));
+        Assert.True(fixture.Files.FileExists(Path.Combine(destinationRoot, "Author\\Book\\001 - Book.mp3")));
+        Assert.False(fixture.Files.FileExists(Path.Combine(destinationRoot, "Author\\Book\\002 - Book.mp3")));
+        Assert.True(fixture.Files.FileExists(Path.Combine(destinationRoot, "Author\\Book\\003 - Book.mp3")));
+        Assert.Equal(
+            [
+                AudiobookExecutionOperationStatus.Completed,
+                AudiobookExecutionOperationStatus.Failed,
+                AudiobookExecutionOperationStatus.Completed
+            ],
+            fixture.Journal.Latest!.Operations.Select(operation => operation.Status));
+        Assert.Contains("1 file", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("skipped", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(3, fixture.Metadata.WriteCount);
+        Assert.Equal(1, fixture.Metadata.RestoreCount);
+        Assert.Equal(5, fixture.Files.MoveCount);
+    }
+
+    [Fact]
+    public async Task ExecuteApproved_SkipsFileThatCannotBeReadDuringPreflight()
+    {
+        var fixture = CreateFixture(
+            ("Incoming\\Part 1.mp3", "Author\\Book\\001 - Book.mp3"),
+            ("Incoming\\Part 2.mp3", "Author\\Book\\002 - Book.mp3"),
+            ("Incoming\\Part 3.mp3", "Author\\Book\\003 - Book.mp3"));
+        var destinationRoot = Path.Combine(
+            Path.GetTempPath(),
+            "Metaroq.Execution.Destination.Tests",
+            Guid.NewGuid().ToString("N"));
+        fixture.Files.AddDirectory(destinationRoot);
+        fixture.Metadata.FailReadNumber = 2;
+
+        var result = await fixture.Service.ExecuteApprovedAsync(
+            fixture.SourceId,
+            fixture.Root,
+            destinationRoot,
+            [fixture.Candidate]);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(2, result.CompletedOperationCount);
+        Assert.False(fixture.Files.FileExists(Path.Combine(fixture.Root, "Incoming\\Part 1.mp3")));
+        Assert.True(fixture.Files.FileExists(Path.Combine(fixture.Root, "Incoming\\Part 2.mp3")));
+        Assert.False(fixture.Files.FileExists(Path.Combine(fixture.Root, "Incoming\\Part 3.mp3")));
+        Assert.True(fixture.Files.FileExists(Path.Combine(
+            destinationRoot,
+            "Author\\Book\\001 - Book.mp3")));
+        Assert.False(fixture.Files.FileExists(Path.Combine(
+            destinationRoot,
+            "Author\\Book\\002 - Book.mp3")));
+        Assert.True(fixture.Files.FileExists(Path.Combine(
+            destinationRoot,
+            "Author\\Book\\003 - Book.mp3")));
+        Assert.Equal(
+            [
+                AudiobookExecutionOperationStatus.Completed,
+                AudiobookExecutionOperationStatus.Failed,
+                AudiobookExecutionOperationStatus.Completed
+            ],
+            fixture.Journal.Latest!.Operations.Select(operation => operation.Status));
+        Assert.Equal(2, fixture.Metadata.WriteCount);
+        Assert.Equal(1, fixture.Backups.BackupCount);
+    }
+
+    [Fact]
+    public async Task ExecuteApproved_RetriesTransientSharingViolationBeforeSkipping()
+    {
+        var fixture = CreateFixture(("Incoming\\Book.mp3", "Author\\Book\\Author - Book.mp3"));
+        fixture.Files.SharingViolationMoveNumber = 1;
+
+        var result = await fixture.Service.ExecuteApprovedAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [fixture.Candidate]);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.CompletedOperationCount);
+        Assert.Equal(2, fixture.Files.MoveCount);
+        Assert.Equal(0, fixture.Metadata.RestoreCount);
+        Assert.True(fixture.Files.FileExists(Path.Combine(
+            fixture.Root,
+            "Author\\Book\\Author - Book.mp3")));
+        Assert.False(fixture.Files.FileExists(Path.Combine(fixture.Root, "Incoming\\Book.mp3")));
+        Assert.Equal(
+            AudiobookExecutionOperationStatus.Completed,
+            Assert.Single(fixture.Journal.Latest!.Operations).Status);
+    }
+
+    [Fact]
+    public async Task RecoverInterrupted_RepairsSkippedFileWithoutUndoingSuccessfulFiles()
     {
         var fixture = CreateFixture(
             ("Incoming\\Part 1.mp3", "Author\\Book\\001 - Book.mp3"),
             ("Incoming\\Part 2.mp3", "Author\\Book\\002 - Book.mp3"));
+        fixture.Files.PersistentSharingViolationSourcePath = Path.Combine(
+            fixture.Root,
+            "Incoming\\Part 2.mp3");
+        fixture.Metadata.FailRestore = true;
+
+        var execution = await fixture.Service.ExecuteApprovedAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [fixture.Candidate]);
+
+        Assert.Equal(AudiobookExecutionRunStatus.CompletedNeedsRecovery, execution.Status);
+        fixture.Metadata.FailRestore = false;
+
+        var recovery = await fixture.Service.RecoverInterruptedAsync(
+            fixture.SourceId,
+            fixture.Root);
+
+        Assert.Equal(AudiobookExecutionRunStatus.Completed, recovery.Status);
+        Assert.False(recovery.NeedsRecovery);
+        Assert.False(fixture.Files.FileExists(Path.Combine(fixture.Root, "Incoming\\Part 1.mp3")));
+        Assert.True(fixture.Files.FileExists(Path.Combine(fixture.Root, "Incoming\\Part 2.mp3")));
+        Assert.True(fixture.Files.FileExists(Path.Combine(
+            fixture.Root,
+            "Author\\Book\\001 - Book.mp3")));
+        Assert.False(fixture.Files.FileExists(Path.Combine(
+            fixture.Root,
+            "Author\\Book\\002 - Book.mp3")));
+        Assert.Equal(
+            [
+                AudiobookExecutionOperationStatus.Completed,
+                AudiobookExecutionOperationStatus.Failed
+            ],
+            fixture.Journal.Latest!.Operations.Select(operation => operation.Status));
+    }
+
+    [Fact]
+    public async Task ExecuteApproved_TreatsMoveThenThrowAsCompletedWhenDestinationIsVerified()
+    {
+        var fixture = CreateFixture(("Incoming\\Book.mp3", "Author\\Book\\Author - Book.mp3"));
+        fixture.Files.MoveThenThrowNumber = 1;
+
+        var result = await fixture.Service.ExecuteApprovedAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [fixture.Candidate]);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.CompletedOperationCount);
+        Assert.False(fixture.Files.FileExists(Path.Combine(fixture.Root, "Incoming\\Book.mp3")));
+        Assert.True(fixture.Files.FileExists(Path.Combine(
+            fixture.Root,
+            "Author\\Book\\Author - Book.mp3")));
+        Assert.Equal(
+            AudiobookExecutionOperationStatus.Completed,
+            Assert.Single(fixture.Journal.Latest!.Operations).Status);
+        Assert.Equal(0, fixture.Metadata.RestoreCount);
+    }
+
+    [Fact]
+    public async Task ExecuteApproved_ReportsAttentionWhenOriginalMetadataCannotBeRestored()
+    {
+        var fixture = CreateFixture(("Incoming\\Book.mp3", "Author\\Book\\Author - Book.mp3"));
+        fixture.Files.PersistentSharingViolationSourcePath = Path.Combine(
+            fixture.Root,
+            "Incoming\\Book.mp3");
+        fixture.Metadata.FailRestore = true;
+
+        var result = await fixture.Service.ExecuteApprovedAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [fixture.Candidate]);
+
+        Assert.True(result.Succeeded);
+        Assert.True(result.NeedsRecovery);
+        Assert.Equal(AudiobookExecutionRunStatus.CompletedNeedsRecovery, result.Status);
+        Assert.Equal(0, result.CompletedOperationCount);
+        Assert.Contains("needs attention", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(fixture.Files.FileExists(Path.Combine(fixture.Root, "Incoming\\Book.mp3")));
+        Assert.False(fixture.Files.FileExists(Path.Combine(
+            fixture.Root,
+            "Author\\Book\\Author - Book.mp3")));
+        Assert.Equal(
+            AudiobookExecutionOperationStatus.RollbackFailed,
+            Assert.Single(fixture.Journal.Latest!.Operations).Status);
+    }
+
+    [Fact]
+    public async Task ExecuteApproved_CancellationStillRollsBackCompletedMoves()
+    {
+        var fixture = CreateFixture(
+            ("Incoming\\Part 1.mp3", "Author\\Book\\001 - Book.mp3"),
+            ("Incoming\\Part 2.mp3", "Author\\Book\\002 - Book.mp3"));
+        using var cancellation = new CancellationTokenSource();
+        var progress = new SynchronousProgress<AudiobookExecutionProgress>(value =>
+        {
+            if (value.ProcessedCount == 1)
+            {
+                cancellation.Cancel();
+            }
+        });
+
+        var result = await fixture.Service.ExecuteApprovedAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [fixture.Candidate],
+            progress,
+            cancellation.Token);
+
+        Assert.Equal(AudiobookExecutionRunStatus.CancelledRolledBack, result.Status);
+        Assert.Equal(1, result.RolledBackOperationCount);
+        Assert.True(fixture.Files.FileExists(Path.Combine(fixture.Root, "Incoming\\Part 1.mp3")));
+        Assert.True(fixture.Files.FileExists(Path.Combine(fixture.Root, "Incoming\\Part 2.mp3")));
+        Assert.False(fixture.Files.FileExists(Path.Combine(
+            fixture.Root,
+            "Author\\Book\\001 - Book.mp3")));
+    }
+
+    [Fact]
+    public async Task ExecuteApproved_CancellationDuringPartialMoveRequiresAttentionAndKeepsBothCopies()
+    {
+        var fixture = CreateFixture(
+            ("Incoming\\Part 1.mp3", "Author\\Book\\001 - Book.mp3"),
+            ("Incoming\\Part 2.mp3", "Author\\Book\\002 - Book.mp3"));
+        using var cancellation = new CancellationTokenSource();
+        fixture.Files.PartialMoveThenThrowNumber = 2;
+        fixture.Files.PartialMoveThenThrowAction = cancellation.Cancel;
+
+        var result = await fixture.Service.ExecuteApprovedAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [fixture.Candidate],
+            cancellationToken: cancellation.Token);
+
+        Assert.Equal(AudiobookExecutionRunStatus.FailedNeedsRecovery, result.Status);
+        Assert.True(result.NeedsRecovery);
+        Assert.Equal(1, result.RolledBackOperationCount);
+        Assert.True(fixture.Files.FileExists(Path.Combine(fixture.Root, "Incoming\\Part 1.mp3")));
+        Assert.True(fixture.Files.FileExists(Path.Combine(fixture.Root, "Incoming\\Part 2.mp3")));
+        Assert.True(fixture.Files.FileExists(Path.Combine(
+            fixture.Root,
+            "Author\\Book\\002 - Book.mp3")));
+        Assert.Equal(
+            [
+                AudiobookExecutionOperationStatus.RolledBack,
+                AudiobookExecutionOperationStatus.NeedsAttention
+            ],
+            fixture.Journal.Latest!.Operations.Select(operation => operation.Status));
+
+        var moveCountBeforeRecovery = fixture.Files.MoveCount;
+        var recovery = await fixture.Service.RecoverInterruptedAsync(
+            fixture.SourceId,
+            fixture.Root);
+
+        Assert.Equal(AudiobookExecutionRunStatus.FailedNeedsRecovery, recovery.Status);
+        Assert.Equal(moveCountBeforeRecovery, fixture.Files.MoveCount);
+        Assert.True(fixture.Files.FileExists(Path.Combine(fixture.Root, "Incoming\\Part 2.mp3")));
+        Assert.True(fixture.Files.FileExists(Path.Combine(
+            fixture.Root,
+            "Author\\Book\\002 - Book.mp3")));
+    }
+
+    [Fact]
+    public async Task ExecuteApproved_SystemStorageFailureStopsBatchAndRollsBackWorkingFiles()
+    {
+        var fixture = CreateFixture(
+            ("Incoming\\Part 1.mp3", "Author\\Book\\001 - Book.mp3"),
+            ("Incoming\\Part 2.mp3", "Author\\Book\\002 - Book.mp3"),
+            ("Incoming\\Part 3.mp3", "Author\\Book\\003 - Book.mp3"));
         fixture.Files.FailMoveNumber = 2;
 
         var result = await fixture.Service.ExecuteApprovedAsync(
@@ -159,12 +453,244 @@ public sealed class AudiobookBatchExecutionServiceTests
             [fixture.Candidate]);
 
         Assert.Equal(AudiobookExecutionRunStatus.FailedRolledBack, result.Status);
+        Assert.False(result.Succeeded);
         Assert.Equal(1, result.RolledBackOperationCount);
-        Assert.True(fixture.Files.FileExists(Path.Combine(fixture.Root, "Incoming\\Part 1.mp3")));
-        Assert.True(fixture.Files.FileExists(Path.Combine(fixture.Root, "Incoming\\Part 2.mp3")));
-        Assert.False(fixture.Files.FileExists(Path.Combine(fixture.Root, "Author\\Book\\001 - Book.mp3")));
-        Assert.Equal(2, fixture.Metadata.WriteCount);
-        Assert.Equal(2, fixture.Metadata.RestoreCount);
+        Assert.All(
+            Enumerable.Range(1, 3),
+            part => Assert.True(fixture.Files.FileExists(Path.Combine(
+                fixture.Root,
+                $"Incoming\\Part {part}.mp3"))));
+        Assert.All(
+            Enumerable.Range(1, 3),
+            part => Assert.False(fixture.Files.FileExists(Path.Combine(
+                fixture.Root,
+                $"Author\\Book\\00{part} - Book.mp3"))));
+        Assert.Equal(
+            [
+                AudiobookExecutionOperationStatus.RolledBack,
+                AudiobookExecutionOperationStatus.Failed,
+                AudiobookExecutionOperationStatus.Pending
+            ],
+            fixture.Journal.Latest!.Operations.Select(operation => operation.Status));
+    }
+
+    [Fact]
+    public async Task ExecuteApproved_SystemFailureAfterVerifiedMoveRollsBackCurrentFile()
+    {
+        var fixture = CreateFixture(("Incoming\\Book.mp3", "Author\\Book\\Author - Book.mp3"));
+        fixture.Files.SystemFailureAfterMoveNumber = 1;
+
+        var result = await fixture.Service.ExecuteApprovedAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [fixture.Candidate]);
+
+        Assert.Equal(AudiobookExecutionRunStatus.FailedRolledBack, result.Status);
+        Assert.Equal(1, result.RolledBackOperationCount);
+        Assert.True(fixture.Files.FileExists(Path.Combine(fixture.Root, "Incoming\\Book.mp3")));
+        Assert.False(fixture.Files.FileExists(Path.Combine(
+            fixture.Root,
+            "Author\\Book\\Author - Book.mp3")));
+        Assert.Equal(
+            AudiobookExecutionOperationStatus.RolledBack,
+            Assert.Single(fixture.Journal.Latest!.Operations).Status);
+    }
+
+    [Fact]
+    public async Task ExecuteApproved_RootDisappearingAfterMissingProbeRequiresRecovery()
+    {
+        var fixture = CreateFixture(("Incoming\\Book.mp3", "Author\\Book\\Author - Book.mp3"));
+        fixture.Files.MissingFileAndRemoveRootOnFileExistsNumber = 3;
+
+        var result = await fixture.Service.ExecuteApprovedAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [fixture.Candidate]);
+
+        Assert.Equal(AudiobookExecutionRunStatus.FailedNeedsRecovery, result.Status);
+        Assert.True(result.NeedsRecovery);
+        Assert.Equal(
+            AudiobookExecutionOperationStatus.NeedsAttention,
+            Assert.Single(fixture.Journal.Latest!.Operations).Status);
+        Assert.Contains("source folder is unavailable", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ExecuteApproved_InaccessibleDestinationProbeIsNeverTreatedAsMissing()
+    {
+        var fixture = CreateFixture(("Incoming\\Book.mp3", "Author\\Book\\Author - Book.mp3"));
+        var destination = Path.Combine(fixture.Root, "Author\\Book\\Author - Book.mp3");
+        fixture.Files.FailMoveNumber = 1;
+        fixture.Files.BeforeFailMoveAction = () => fixture.Files.FileExistsFailurePath = destination;
+
+        var result = await fixture.Service.ExecuteApprovedAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [fixture.Candidate]);
+
+        Assert.Equal(AudiobookExecutionRunStatus.FailedNeedsRecovery, result.Status);
+        Assert.True(result.NeedsRecovery);
+        Assert.Equal(
+            AudiobookExecutionOperationStatus.NeedsAttention,
+            Assert.Single(fixture.Journal.Latest!.Operations).Status);
+        Assert.Contains("inaccessible file state", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ExecuteApproved_SystemFailureWithMetadataRestoreFailureRemainsRecoverable()
+    {
+        var fixture = CreateFixture(("Incoming\\Book.mp3", "Author\\Book\\Author - Book.mp3"));
+        fixture.Files.FailMoveNumber = 1;
+        fixture.Metadata.FailRestore = true;
+
+        var result = await fixture.Service.ExecuteApprovedAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [fixture.Candidate]);
+
+        Assert.Equal(AudiobookExecutionRunStatus.FailedNeedsRecovery, result.Status);
+        Assert.True(result.NeedsRecovery);
+        Assert.Equal(
+            AudiobookExecutionOperationStatus.RollbackFailed,
+            Assert.Single(fixture.Journal.Latest!.Operations).Status);
+
+        fixture.Metadata.FailRestore = false;
+        var recovery = await fixture.Service.RecoverInterruptedAsync(
+            fixture.SourceId,
+            fixture.Root);
+
+        Assert.Equal(AudiobookExecutionRunStatus.FailedRolledBack, recovery.Status);
+        Assert.False(recovery.NeedsRecovery);
+        Assert.Equal(
+            AudiobookExecutionOperationStatus.RolledBack,
+            Assert.Single(fixture.Journal.Latest!.Operations).Status);
+    }
+
+    [Fact]
+    public async Task RecoverInterrupted_NeverMovesAnUnverifiedDestinationAutomatically()
+    {
+        var fixture = CreateFixture(("Incoming\\Book.mp3", "Author\\Book\\Author - Book.mp3"));
+        var source = Path.Combine(fixture.Root, "Incoming\\Book.mp3");
+        var destination = Path.Combine(fixture.Root, "Author\\Book\\Author - Book.mp3");
+        fixture.Files.CorruptDestinationThenThrowNumber = 1;
+
+        var execution = await fixture.Service.ExecuteApprovedAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [fixture.Candidate]);
+
+        Assert.Equal(AudiobookExecutionRunStatus.CompletedNeedsRecovery, execution.Status);
+        Assert.Equal(
+            AudiobookExecutionOperationStatus.NeedsAttention,
+            Assert.Single(fixture.Journal.Latest!.Operations).Status);
+        Assert.False(fixture.Files.FileExists(source));
+        Assert.True(fixture.Files.FileExists(destination));
+        var moveCountBeforeRecovery = fixture.Files.MoveCount;
+
+        var unresolved = await fixture.Service.RecoverInterruptedAsync(
+            fixture.SourceId,
+            fixture.Root);
+
+        Assert.Equal(AudiobookExecutionRunStatus.CompletedNeedsRecovery, unresolved.Status);
+        Assert.Equal(moveCountBeforeRecovery, fixture.Files.MoveCount);
+        Assert.False(fixture.Files.FileExists(source));
+        Assert.True(fixture.Files.FileExists(destination));
+        Assert.Equal(
+            AudiobookExecutionOperationStatus.NeedsAttention,
+            Assert.Single(fixture.Journal.Latest!.Operations).Status);
+
+        fixture.Files.Move(destination, source);
+        fixture.Files.ResetMoveCount();
+        var resolved = await fixture.Service.RecoverInterruptedAsync(
+            fixture.SourceId,
+            fixture.Root);
+
+        Assert.Equal(AudiobookExecutionRunStatus.Completed, resolved.Status);
+        Assert.False(resolved.NeedsRecovery);
+        Assert.Equal(0, fixture.Files.MoveCount);
+        Assert.True(fixture.Files.FileExists(source));
+        Assert.False(fixture.Files.FileExists(destination));
+        Assert.Equal(
+            AudiobookExecutionOperationStatus.Failed,
+            Assert.Single(fixture.Journal.Latest!.Operations).Status);
+    }
+
+    [Fact]
+    public async Task RecoverInterrupted_RestoresNeedsAttentionMetadataOnlyOperation()
+    {
+        var relativePath = "Author\\Book\\Author - Book.mp3";
+        var fixture = CreateFixture((relativePath, relativePath));
+        var planned = Assert.Single(fixture.Candidate.BatchPlan!.Operations);
+        var source = Path.Combine(fixture.Root, relativePath);
+        var originalMetadata = fixture.Metadata.Read(source);
+        var operation = new AudiobookExecutionOperationEntry(
+            Guid.NewGuid(),
+            0,
+            fixture.Candidate.BatchPlan.PlanKey,
+            fixture.Candidate.BatchPlan.InputSignature,
+            planned.MediaItemId,
+            relativePath,
+            relativePath,
+            AudiobookFileOperationKind.UpdateMetadata,
+            AudiobookExecutionOperationStatus.NeedsAttention,
+            100,
+            TestFileOperator.ModifiedAtUtc,
+            OriginalMetadataJson: System.Text.Json.JsonSerializer.Serialize(originalMetadata));
+        fixture.Journal.Latest = new AudiobookExecutionRunEntry(
+            Guid.NewGuid(),
+            fixture.SourceId,
+            AudiobookExecutionRunStatus.CompletedNeedsRecovery,
+            1,
+            0,
+            0,
+            DateTime.UtcNow,
+            DateTime.UtcNow,
+            DateTime.UtcNow,
+            "Manual review required.",
+            [operation],
+            fixture.Root,
+            fixture.Root);
+
+        var recovery = await fixture.Service.RecoverInterruptedAsync(
+            fixture.SourceId,
+            fixture.Root);
+
+        Assert.Equal(AudiobookExecutionRunStatus.Completed, recovery.Status);
+        Assert.Equal(1, fixture.Metadata.RestoreCount);
+        Assert.Equal(
+            AudiobookExecutionOperationStatus.Failed,
+            Assert.Single(fixture.Journal.Latest.Operations).Status);
+    }
+
+    [Fact]
+    public async Task ExecuteApproved_RollbackProgressKeepsOriginalBatchTotals()
+    {
+        var fixture = CreateFixture(
+            ("Incoming\\Part 1.mp3", "Author\\Book\\001 - Book.mp3"),
+            ("Incoming\\Part 2.mp3", "Author\\Book\\002 - Book.mp3"),
+            ("Incoming\\Part 3.mp3", "Author\\Book\\003 - Book.mp3"),
+            ("Incoming\\Part 4.mp3", "Author\\Book\\004 - Book.mp3"),
+            ("Incoming\\Part 5.mp3", "Author\\Book\\005 - Book.mp3"));
+        fixture.Files.FailMoveNumber = 3;
+        fixture.Files.SecondaryFailMoveNumber = 4;
+        var reports = new List<AudiobookExecutionProgress>();
+        var progress = new SynchronousProgress<AudiobookExecutionProgress>(reports.Add);
+
+        await fixture.Service.ExecuteApprovedAsync(
+            fixture.SourceId,
+            fixture.Root,
+            [fixture.Candidate],
+            progress);
+
+        var rollbackReports = reports
+            .Where(report => report.Status.StartsWith("Rollback attempt", StringComparison.Ordinal))
+            .ToList();
+        Assert.Equal(2, rollbackReports.Count);
+        Assert.All(rollbackReports, report => Assert.Equal(3, report.ProcessedCount));
+        Assert.All(rollbackReports, report => Assert.Equal(5, report.TotalCount));
+        Assert.Contains("1 of 2", rollbackReports[0].Status, StringComparison.Ordinal);
+        Assert.Contains("1 need recovery", rollbackReports[0].Status, StringComparison.Ordinal);
+        Assert.Contains("2 of 2", rollbackReports[1].Status, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -268,7 +794,7 @@ public sealed class AudiobookBatchExecutionServiceTests
     }
 
     [Fact]
-    public async Task RecoverInterrupted_RestoresMovedDestinationsWithoutOverwrite()
+    public async Task RecoverInterrupted_DoesNotMoveUnverifiedRunningDestination()
     {
         var fixture = CreateFixture(("Incoming\\Book.mp3", "Author\\Book\\Author - Book.mp3"));
         var source = Path.Combine(fixture.Root, "Incoming\\Book.mp3");
@@ -287,10 +813,12 @@ public sealed class AudiobookBatchExecutionServiceTests
 
         var result = await fixture.Service.RecoverInterruptedAsync(fixture.SourceId, fixture.Root);
 
-        Assert.Equal(AudiobookExecutionRunStatus.FailedRolledBack, result.Status);
-        Assert.True(fixture.Files.FileExists(source));
-        Assert.False(fixture.Files.FileExists(destination));
-        Assert.Equal(AudiobookExecutionOperationStatus.RolledBack, fixture.Journal.Latest.Operations[0].Status);
+        Assert.Equal(AudiobookExecutionRunStatus.FailedNeedsRecovery, result.Status);
+        Assert.False(fixture.Files.FileExists(source));
+        Assert.True(fixture.Files.FileExists(destination));
+        Assert.Equal(
+            AudiobookExecutionOperationStatus.NeedsAttention,
+            fixture.Journal.Latest.Operations[0].Status);
     }
 
     [Fact]
@@ -309,7 +837,7 @@ public sealed class AudiobookBatchExecutionServiceTests
             Guid.NewGuid(), 0, "plan-1", "signature", Guid.NewGuid(),
             "Incoming\\Book.mp3", "Author\\Book\\Author - Book.mp3",
             AudiobookFileOperationKind.MoveAndRename,
-            AudiobookExecutionOperationStatus.Running,
+            AudiobookExecutionOperationStatus.Completed,
             100,
             TestFileOperator.ModifiedAtUtc);
         fixture.Journal.Latest = new AudiobookExecutionRunEntry(
@@ -325,6 +853,68 @@ public sealed class AudiobookBatchExecutionServiceTests
         Assert.Equal(AudiobookExecutionRunStatus.FailedRolledBack, result.Status);
         Assert.True(fixture.Files.FileExists(source));
         Assert.False(fixture.Files.FileExists(destination));
+    }
+
+    [Fact]
+    public async Task RecoverInterrupted_IgnoresSkippedAndPendingOperations()
+    {
+        var fixture = CreateFixture(
+            ("Incoming\\Part 1.mp3", "Author\\Book\\001 - Book.mp3"),
+            ("Incoming\\Part 2.mp3", "Author\\Book\\002 - Book.mp3"),
+            ("Incoming\\Part 3.mp3", "Author\\Book\\003 - Book.mp3"));
+        var plannedOperations = fixture.Candidate.BatchPlan!.Operations;
+        var firstSource = Path.Combine(fixture.Root, plannedOperations[0].SourceRelativePath);
+        var firstDestination = Path.Combine(fixture.Root, plannedOperations[0].DestinationRelativePath);
+        fixture.Files.Move(firstSource, firstDestination);
+        fixture.Files.ResetMoveCount();
+        var statuses = new[]
+        {
+            AudiobookExecutionOperationStatus.Completed,
+            AudiobookExecutionOperationStatus.Failed,
+            AudiobookExecutionOperationStatus.Pending
+        };
+        var journalOperations = plannedOperations
+            .Select((operation, index) => new AudiobookExecutionOperationEntry(
+                Guid.NewGuid(),
+                index,
+                "plan-1",
+                "signature",
+                operation.MediaItemId,
+                operation.SourceRelativePath,
+                operation.DestinationRelativePath,
+                operation.Kind,
+                statuses[index],
+                100,
+                TestFileOperator.ModifiedAtUtc))
+            .ToList();
+        fixture.Journal.Latest = new AudiobookExecutionRunEntry(
+            Guid.NewGuid(),
+            fixture.SourceId,
+            AudiobookExecutionRunStatus.Running,
+            3,
+            1,
+            0,
+            DateTime.UtcNow,
+            DateTime.UtcNow,
+            null,
+            null,
+            journalOperations);
+
+        var result = await fixture.Service.RecoverInterruptedAsync(
+            fixture.SourceId,
+            fixture.Root);
+
+        Assert.Equal(AudiobookExecutionRunStatus.FailedRolledBack, result.Status);
+        Assert.True(fixture.Files.FileExists(firstSource));
+        Assert.False(fixture.Files.FileExists(firstDestination));
+        Assert.Equal(
+            [
+                AudiobookExecutionOperationStatus.RolledBack,
+                AudiobookExecutionOperationStatus.Failed,
+                AudiobookExecutionOperationStatus.Pending
+            ],
+            fixture.Journal.Latest!.Operations.Select(operation => operation.Status));
+        Assert.Equal(1, fixture.Files.MoveCount);
     }
 
     [Fact]
@@ -451,6 +1041,11 @@ public sealed class AudiobookBatchExecutionServiceTests
         TestDatabaseBackupService Backups,
         AudiobookBatchExecutionService Service);
 
+    private sealed class SynchronousProgress<T>(Action<T> handler) : IProgress<T>
+    {
+        public void Report(T value) => handler(value);
+    }
+
     private sealed class TestDatabaseBackupService : IDatabaseBackupService
     {
         public int BackupCount { get; private set; }
@@ -466,20 +1061,33 @@ public sealed class AudiobookBatchExecutionServiceTests
 
     private sealed class TestMetadataWriter : IAudiobookMetadataWriter
     {
+        private int _readCount;
+
+        public int? FailReadNumber { get; set; }
+        public bool FailRestore { get; set; }
         public int WriteCount { get; private set; }
         public int RestoreCount { get; private set; }
         public AudiobookTagUpdate? LastUpdate { get; private set; }
 
-        public AudiobookTagState Read(string path) => new(
-            "Original title",
-            ["Original author"],
-            ["Original author"],
-            "Original album",
-            ["Original genre"],
-            2000,
-            1,
-            1,
-            null);
+        public AudiobookTagState Read(string path)
+        {
+            _readCount++;
+            if (FailReadNumber == _readCount)
+            {
+                throw new InvalidDataException("Simulated corrupt metadata.");
+            }
+
+            return new AudiobookTagState(
+                "Original title",
+                ["Original author"],
+                ["Original author"],
+                "Original album",
+                ["Original genre"],
+                2000,
+                1,
+                1,
+                null);
+        }
 
         public void Write(string path, AudiobookTagUpdate update)
         {
@@ -487,7 +1095,16 @@ public sealed class AudiobookBatchExecutionServiceTests
             LastUpdate = update;
         }
 
-        public void Restore(string path, AudiobookTagState state) => RestoreCount++;
+        public void Restore(string path, AudiobookTagState state)
+        {
+            RestoreCount++;
+            if (FailRestore)
+            {
+                throw new IOException(
+                    "Simulated metadata restore sharing violation.",
+                    unchecked((int)0x80070020));
+            }
+        }
     }
 
     private sealed class TestCoverArtworkProvider : IAudiobookCoverArtworkProvider
@@ -509,16 +1126,43 @@ public sealed class AudiobookBatchExecutionServiceTests
         {
             root
         };
+        private int _fileExistsCount;
         private int _moveCount;
 
         public int? FailMoveNumber { get; set; }
+        public int? SecondaryFailMoveNumber { get; set; }
+        public int? MoveThenThrowNumber { get; set; }
+        public int? SystemFailureAfterMoveNumber { get; set; }
+        public int? PartialMoveThenThrowNumber { get; set; }
+        public int? CorruptDestinationThenThrowNumber { get; set; }
+        public int? MissingFileAndRemoveRootOnFileExistsNumber { get; set; }
+        public int? SharingViolationMoveNumber { get; set; }
+        public string? PersistentSharingViolationSourcePath { get; set; }
+        public string? FileExistsFailurePath { get; set; }
+        public Action? BeforeFailMoveAction { get; set; }
+        public Action? PartialMoveThenThrowAction { get; set; }
         public int MoveCount => _moveCount;
         public int SidecarWriteCount { get; private set; }
 
         public void AddFile(string path) => _files[path] = new AudiobookFileSnapshot(100, ModifiedAtUtc);
         public void AddDirectory(string path) => _directories.Add(path);
         public void ResetMoveCount() => _moveCount = 0;
-        public bool FileExists(string path) => _files.ContainsKey(path);
+        public bool FileExists(string path)
+        {
+            _fileExistsCount++;
+            if (string.Equals(FileExistsFailurePath, path, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new UnauthorizedAccessException("Simulated inaccessible file state.");
+            }
+
+            if (MissingFileAndRemoveRootOnFileExistsNumber == _fileExistsCount)
+            {
+                _directories.Remove(root);
+                return false;
+            }
+
+            return _files.ContainsKey(path);
+        }
         public bool DirectoryExists(string path) => _directories.Contains(path);
         public AudiobookFileSnapshot GetSnapshot(string path) => _files[path];
         public void CreateDirectory(string path) { }
@@ -536,9 +1180,38 @@ public sealed class AudiobookBatchExecutionServiceTests
         public void Move(string sourcePath, string destinationPath)
         {
             _moveCount++;
-            if (FailMoveNumber == _moveCount)
+            if (FailMoveNumber == _moveCount ||
+                SecondaryFailMoveNumber == _moveCount)
             {
+                BeforeFailMoveAction?.Invoke();
                 throw new IOException("Simulated network move failure.");
+            }
+
+            if (SharingViolationMoveNumber == _moveCount)
+            {
+                throw new IOException(
+                    "The process cannot access the file because it is being used by another process.",
+                    unchecked((int)0x80070020));
+            }
+
+            if (string.Equals(
+                    PersistentSharingViolationSourcePath,
+                    sourcePath,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new IOException(
+                    "The process cannot access the file because it is being used by another process.",
+                    unchecked((int)0x80070020));
+            }
+
+            if (PartialMoveThenThrowNumber == _moveCount &&
+                _files.TryGetValue(sourcePath, out var partialSnapshot))
+            {
+                _files[destinationPath] = partialSnapshot;
+                PartialMoveThenThrowAction?.Invoke();
+                throw new IOException(
+                    "Simulated partial cross-volume move.",
+                    unchecked((int)0x80070020));
             }
 
             if (!_files.Remove(sourcePath, out var snapshot))
@@ -549,7 +1222,31 @@ public sealed class AudiobookBatchExecutionServiceTests
             if (!_files.TryAdd(destinationPath, snapshot))
             {
                 _files[sourcePath] = snapshot;
-                throw new IOException("Destination already exists.");
+                throw new IOException(
+                    "Destination already exists.",
+                    unchecked((int)0x80070050));
+            }
+
+            if (MoveThenThrowNumber == _moveCount)
+            {
+                throw new IOException(
+                    "Simulated move completion sharing warning.",
+                    unchecked((int)0x80070020));
+            }
+
+            if (SystemFailureAfterMoveNumber == _moveCount)
+            {
+                throw new IOException(
+                    "Simulated destination storage failure after move.",
+                    unchecked((int)0x80070070));
+            }
+
+            if (CorruptDestinationThenThrowNumber == _moveCount)
+            {
+                _files[destinationPath] = snapshot with { SizeBytes = snapshot.SizeBytes + 1 };
+                throw new IOException(
+                    "Simulated unverified move completion.",
+                    unchecked((int)0x80070020));
             }
         }
     }

@@ -861,9 +861,13 @@ public sealed partial class MainWindowViewModel
             ResetAudiobookAnalysis();
             AudiobookExecutionStatus = $"{result.Message} Rescanning the catalogue...";
             IsScanRunning = await _backgroundScanService.QueueScanAsync(source.Id);
-            Status = IsScanRunning
-                ? "Approved file operations completed; refreshing the catalogue"
-                : "Approved file operations completed; start a scan to refresh the catalogue";
+            Status = result.NeedsRecovery
+                ? IsScanRunning
+                    ? "Available file operations completed; refreshing the catalogue before skipped-file recovery"
+                    : "Available file operations completed; recover the file that still needs attention"
+                : IsScanRunning
+                    ? "Approved file operations completed; refreshing the catalogue"
+                    : "Approved file operations completed; start a scan to refresh the catalogue";
         }
         catch (FileNotFoundException exception)
         {
@@ -936,8 +940,14 @@ public sealed partial class MainWindowViewModel
         }
 
         var latest = await _audiobookBatchExecutionService.LoadLatestAsync(SelectedSource.Id);
+        var recoveryOperationCount = latest?.Status == AudiobookExecutionRunStatus.CompletedNeedsRecovery
+            ? latest.Operations.Count(operation =>
+                operation.Status is
+                    AudiobookExecutionOperationStatus.RollbackFailed or
+                    AudiobookExecutionOperationStatus.NeedsAttention)
+            : latest?.PlannedOperationCount ?? 0;
         if (latest is null ||
-            !_audiobookExecutionConfirmationService.ConfirmRecovery(latest.PlannedOperationCount))
+            !_audiobookExecutionConfirmationService.ConfirmRecovery(recoveryOperationCount))
         {
             return;
         }
@@ -946,7 +956,7 @@ public sealed partial class MainWindowViewModel
         _audiobookExecutionCancellation = new CancellationTokenSource();
         IsAudiobookExecutionRunning = true;
         AudiobookExecutionProcessedCount = 0;
-        AudiobookExecutionTotalCount = latest.PlannedOperationCount;
+        AudiobookExecutionTotalCount = recoveryOperationCount;
         AudiobookExecutionStatus = "Recovering the interrupted execution journal...";
         try
         {
@@ -1433,13 +1443,19 @@ public sealed partial class MainWindowViewModel
                 HasInterruptedAudiobookExecution = latest?.Status is
                     AudiobookExecutionRunStatus.Prepared or
                     AudiobookExecutionRunStatus.Running or
-                    AudiobookExecutionRunStatus.FailedNeedsRecovery;
+                    AudiobookExecutionRunStatus.FailedNeedsRecovery or
+                    AudiobookExecutionRunStatus.CompletedNeedsRecovery;
                 AudiobookExecutionStatus = latest is null
                     ? "No batch execution has run"
                     : latest.Status switch
                     {
+                        AudiobookExecutionRunStatus.Completed when
+                            latest.CompletedOperationCount < latest.PlannedOperationCount =>
+                            $"Last execution completed {latest.CompletedAtUtc?.ToLocalTime():g}: {latest.CompletedOperationCount:N0} file updates completed, {latest.PlannedOperationCount - latest.CompletedOperationCount:N0} skipped",
                         AudiobookExecutionRunStatus.Completed =>
                             $"Last execution completed {latest.CompletedAtUtc?.ToLocalTime():g}: {latest.CompletedOperationCount:N0} file updates completed",
+                        AudiobookExecutionRunStatus.CompletedNeedsRecovery =>
+                            $"Last execution kept {latest.CompletedOperationCount:N0} successful file updates, but {latest.Operations.Count(operation => operation.Status is AudiobookExecutionOperationStatus.RollbackFailed or AudiobookExecutionOperationStatus.NeedsAttention):N0} skipped file operations need recovery",
                         AudiobookExecutionRunStatus.FailedRolledBack =>
                             $"Last execution stopped safely: {latest.RolledBackOperationCount:N0} moves rolled back",
                         AudiobookExecutionRunStatus.CancelledRolledBack =>
@@ -1448,7 +1464,11 @@ public sealed partial class MainWindowViewModel
                             "Previous execution needs recovery before another run can start",
                         _ => "Previous execution was interrupted; recovery is available"
                     };
-                AudiobookExecutionProcessedCount = latest?.CompletedOperationCount ?? 0;
+                AudiobookExecutionProcessedCount = latest?.Status is
+                    AudiobookExecutionRunStatus.Completed or
+                    AudiobookExecutionRunStatus.CompletedNeedsRecovery
+                    ? latest.PlannedOperationCount
+                    : latest?.CompletedOperationCount ?? 0;
                 AudiobookExecutionTotalCount = latest?.PlannedOperationCount ?? 0;
             });
         }

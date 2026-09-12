@@ -35,24 +35,27 @@ public sealed class AudiobookBatchExecutionService(
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceRoot);
         ArgumentException.ThrowIfNullOrWhiteSpace(destinationRoot);
         ArgumentNullException.ThrowIfNull(candidates);
+        var sourceBase = NormalizeRoot(sourceRoot);
+        var destinationBase = NormalizeRoot(destinationRoot);
 
         var latest = await journalStore.LoadLatestAsync(librarySourceId, cancellationToken);
         if (latest?.Status is AudiobookExecutionRunStatus.Prepared or
             AudiobookExecutionRunStatus.Running or
-            AudiobookExecutionRunStatus.FailedNeedsRecovery)
+            AudiobookExecutionRunStatus.FailedNeedsRecovery or
+            AudiobookExecutionRunStatus.CompletedNeedsRecovery)
         {
             throw new InvalidOperationException(
                 "A previous execution was interrupted. Recover that journal before starting another run.");
         }
 
         var preparation = await PrepareOperationsAsync(
-            sourceRoot,
-            destinationRoot,
+            sourceBase,
+            destinationBase,
             candidates,
             latest,
             cancellationToken);
         var prepared = preparation.Operations;
-        if (prepared.Count == 0)
+        if (prepared.Count == 0 && preparation.FailedOperations.Count == 0)
         {
             if (preparation.AlreadyCompletedCount > 0)
             {
@@ -70,68 +73,143 @@ public sealed class AudiobookBatchExecutionService(
                 "No approved file operations are ready to execute.");
         }
 
-        await databaseBackupService.CreateBackupAsync(
-            "before-audiobook-execution",
-            cancellationToken);
+        if (prepared.Count > 0)
+        {
+            await databaseBackupService.CreateBackupAsync(
+                "before-audiobook-execution",
+                cancellationToken);
+        }
 
         var now = DateTime.UtcNow;
+        var journalOperations = prepared
+            .Select(item => item.Entry)
+            .Concat(preparation.FailedOperations)
+            .OrderBy(operation => operation.SortOrder)
+            .ToList();
         var run = new AudiobookExecutionRunEntry(
             Guid.NewGuid(),
             librarySourceId,
             AudiobookExecutionRunStatus.Prepared,
-            prepared.Count,
+            journalOperations.Count,
             0,
             0,
             now,
             now,
             null,
             null,
-            prepared.Select(item => item.Entry).ToList(),
-            Path.GetFullPath(sourceRoot),
-            Path.GetFullPath(destinationRoot));
+            journalOperations,
+            sourceBase,
+            destinationBase);
         await journalStore.CreateAsync(run, cancellationToken);
         await journalStore.UpdateRunAsync(
             run.Id,
             AudiobookExecutionRunStatus.Running,
             0,
             0,
-            null,
+            BuildOperationFailureSummary(
+                preparation.FailedOperations.Select(ToOperationFailureMessage).ToList()),
             DateTime.UtcNow,
             null,
             cancellationToken);
 
         var completed = new List<PreparedOperation>();
+        var failedOperationMessages = preparation.FailedOperations
+            .Select(ToOperationFailureMessage)
+            .ToList();
+        var needsAttentionOperationIds = new HashSet<Guid>();
+        var processedOperationCount = preparation.FailedOperations.Count;
         PreparedOperation? current = null;
         try
         {
             for (var index = 0; index < prepared.Count; index++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                EnsureLibraryRootsAvailable(sourceBase, destinationBase);
                 current = prepared[index];
-                Revalidate(current);
+                processedOperationCount = preparation.FailedOperations.Count + index + 1;
                 progress?.Report(new AudiobookExecutionProgress(
-                    index,
-                    prepared.Count,
+                    preparation.FailedOperations.Count + index,
+                    run.PlannedOperationCount,
                     current.Entry.SourceRelativePath,
-                    $"Updating metadata and organising file {index + 1:N0} of {prepared.Count:N0}"));
+                    $"Updating metadata and organising file {preparation.FailedOperations.Count + index + 1:N0} of {run.PlannedOperationCount:N0}"));
                 await journalStore.UpdateOperationAsync(
                     current.Entry.Id,
                     AudiobookExecutionOperationStatus.Running,
                     null,
                     cancellationToken);
 
-                var destinationDirectory = Path.GetDirectoryName(current.DestinationFullPath);
-                if (string.IsNullOrWhiteSpace(destinationDirectory))
+                try
                 {
-                    throw new InvalidOperationException("The destination folder could not be resolved.");
+                    await ExecuteFileOperationAsync(
+                        current,
+                        sourceBase,
+                        destinationBase,
+                        cancellationToken);
                 }
-
-                fileOperator.CreateDirectory(destinationDirectory);
-                current.MetadataWriteAttempted = true;
-                metadataWriter.Write(current.SourceFullPath, current.DesiredMetadata);
-                if (current.Entry.Kind != AudiobookFileOperationKind.UpdateMetadata)
+                catch (Exception exception) when (
+                    !cancellationToken.IsCancellationRequested &&
+                    IsIndividualFileFailure(exception))
                 {
-                    fileOperator.Move(current.SourceFullPath, current.DestinationFullPath);
+                    var resolution = ReconcileOperationFailure(
+                        current,
+                        exception,
+                        sourceBase,
+                        destinationBase);
+                    if (resolution.OperationCompleted)
+                    {
+                        completed.Add(current);
+                        await journalStore.UpdateOperationAsync(
+                            current.Entry.Id,
+                            AudiobookExecutionOperationStatus.Completed,
+                            LimitJournalMessage(resolution.Message),
+                            CancellationToken.None);
+                        await journalStore.UpdateRunAsync(
+                            run.Id,
+                            AudiobookExecutionRunStatus.Running,
+                            completed.Count,
+                            0,
+                            BuildOperationFailureSummary(failedOperationMessages),
+                            DateTime.UtcNow,
+                            null,
+                            CancellationToken.None);
+                        progress?.Report(new AudiobookExecutionProgress(
+                            preparation.FailedOperations.Count + index + 1,
+                            run.PlannedOperationCount,
+                            current.Entry.DestinationRelativePath,
+                            $"Processed {preparation.FailedOperations.Count + index + 1:N0} of {run.PlannedOperationCount:N0} files: the completed destination was verified after a file-system warning"));
+                        current = null;
+                        continue;
+                    }
+
+                    var failureMessage = resolution.Message;
+                    failedOperationMessages.Add(
+                        $"{current.Entry.SourceRelativePath}: {failureMessage}");
+                    if (resolution.NeedsAttention)
+                    {
+                        needsAttentionOperationIds.Add(current.Entry.Id);
+                    }
+
+                    await journalStore.UpdateOperationAsync(
+                        current.Entry.Id,
+                        resolution.FailureStatus,
+                        LimitJournalMessage(failureMessage),
+                        CancellationToken.None);
+                    await journalStore.UpdateRunAsync(
+                        run.Id,
+                        AudiobookExecutionRunStatus.Running,
+                        completed.Count,
+                        0,
+                        BuildOperationFailureSummary(failedOperationMessages),
+                        DateTime.UtcNow,
+                        null,
+                        CancellationToken.None);
+                    progress?.Report(new AudiobookExecutionProgress(
+                        preparation.FailedOperations.Count + index + 1,
+                        run.PlannedOperationCount,
+                        current.Entry.SourceRelativePath,
+                        $"Skipped {failedOperationMessages.Count:N0} file{(failedOperationMessages.Count == 1 ? string.Empty : "s")} that could not be processed; continuing with the remaining files"));
+                    current = null;
+                    continue;
                 }
 
                 completed.Add(current);
@@ -146,63 +224,141 @@ public sealed class AudiobookBatchExecutionService(
                     AudiobookExecutionRunStatus.Running,
                     completed.Count,
                     0,
-                    null,
+                    BuildOperationFailureSummary(failedOperationMessages),
                     DateTime.UtcNow,
                     null,
                     CancellationToken.None);
                 progress?.Report(new AudiobookExecutionProgress(
-                    completed.Count,
-                    prepared.Count,
+                    preparation.FailedOperations.Count + index + 1,
+                    run.PlannedOperationCount,
                     current.Entry.DestinationRelativePath,
-                    $"Updated and organised {completed.Count:N0} of {prepared.Count:N0} files"));
+                    failedOperationMessages.Count == 0
+                        ? $"Updated and organised {completed.Count:N0} of {run.PlannedOperationCount:N0} files"
+                        : $"Processed {preparation.FailedOperations.Count + index + 1:N0} of {run.PlannedOperationCount:N0} files: {completed.Count:N0} organised, {failedOperationMessages.Count:N0} skipped"));
                 current = null;
             }
 
             var completedAtUtc = DateTime.UtcNow;
+            var needsAttentionCount = needsAttentionOperationIds.Count;
+            var finalStatus = needsAttentionCount == 0
+                ? AudiobookExecutionRunStatus.Completed
+                : AudiobookExecutionRunStatus.CompletedNeedsRecovery;
             await journalStore.UpdateRunAsync(
                 run.Id,
-                AudiobookExecutionRunStatus.Completed,
+                finalStatus,
                 completed.Count,
                 0,
-                null,
+                BuildOperationFailureSummary(failedOperationMessages),
                 completedAtUtc,
                 completedAtUtc,
                 CancellationToken.None);
             var sidecars = WriteCoverSidecars(completed);
             var artworkMessage = BuildArtworkResultMessage(preparation.UnavailableCoverCount, sidecars);
+            var skippedMessage = BuildSkippedResultMessage(
+                failedOperationMessages.Count,
+                needsAttentionCount);
+            var completionMessage = preparation.AlreadyCompletedCount == 0
+                ? $"{BuildCompletionMessage(completed.Count, needsAttentionCount)}{skippedMessage}{artworkMessage}"
+                : $"{BuildCompletionMessage(completed.Count, needsAttentionCount)} {preparation.AlreadyCompletedCount:N0} had already reached their recorded destinations.{skippedMessage}{artworkMessage}";
+            progress?.Report(new AudiobookExecutionProgress(
+                run.PlannedOperationCount,
+                run.PlannedOperationCount,
+                failedOperationMessages.Count == 0
+                    ? completed.LastOrDefault()?.Entry.DestinationRelativePath ?? string.Empty
+                    : preparation.FailedOperations.LastOrDefault()?.SourceRelativePath ??
+                      completed.LastOrDefault()?.Entry.DestinationRelativePath ??
+                      string.Empty,
+                completionMessage));
             return new AudiobookExecutionResult(
                 run.Id,
-                AudiobookExecutionRunStatus.Completed,
-                prepared.Count + preparation.AlreadyCompletedCount,
+                finalStatus,
+                run.PlannedOperationCount + preparation.AlreadyCompletedCount,
                 completed.Count + preparation.AlreadyCompletedCount,
                 0,
-                preparation.AlreadyCompletedCount == 0
-                    ? $"Execution complete: {completed.Count:N0} file{(completed.Count == 1 ? string.Empty : "s")} updated and organised safely.{artworkMessage}"
-                    : $"Execution complete: {completed.Count:N0} file{(completed.Count == 1 ? string.Empty : "s")} updated and organised safely; {preparation.AlreadyCompletedCount:N0} had already reached their recorded destinations.{artworkMessage}");
+                completionMessage);
         }
         catch (Exception exception)
         {
-            var cancelled = exception is OperationCanceledException;
+            var cancelled = exception is OperationCanceledException ||
+                            cancellationToken.IsCancellationRequested;
+            string? currentRecoveryDetail = null;
             if (current is not null && !completed.Contains(current))
             {
-                TryRestoreMetadata(current, current.SourceFullPath);
-                await TryUpdateOperationAsync(
-                    current.Entry.Id,
-                    AudiobookExecutionOperationStatus.Failed,
-                    exception.Message);
+                OperationFailureResolution currentResolution;
+                try
+                {
+                    currentResolution = ReconcileOperationFailure(
+                        current,
+                        exception,
+                        sourceBase,
+                        destinationBase);
+                }
+                catch (Exception reconciliationException)
+                {
+                    currentResolution = new OperationFailureResolution(
+                        false,
+                        AudiobookExecutionOperationStatus.NeedsAttention,
+                        $"{exception.Message} The current file could not be returned to a verified state: {reconciliationException.Message}");
+                }
+
+                if (currentResolution.OperationCompleted)
+                {
+                    completed.Add(current);
+                    var currentJournalUpdated = await TryUpdateOperationAsync(
+                        current.Entry.Id,
+                        AudiobookExecutionOperationStatus.Completed,
+                        LimitJournalMessage(currentResolution.Message));
+                    if (!currentJournalUpdated)
+                    {
+                        needsAttentionOperationIds.Add(current.Entry.Id);
+                        currentRecoveryDetail =
+                            $"The journal could not record the verified state of '{current.Entry.SourceRelativePath}'.";
+                    }
+                }
+                else
+                {
+                    if (currentResolution.NeedsAttention)
+                    {
+                        needsAttentionOperationIds.Add(current.Entry.Id);
+                        currentRecoveryDetail = currentResolution.Message;
+                    }
+
+                    var currentJournalUpdated = await TryUpdateOperationAsync(
+                        current.Entry.Id,
+                        currentResolution.FailureStatus,
+                        LimitJournalMessage(currentResolution.Message));
+                    if (!currentJournalUpdated)
+                    {
+                        needsAttentionOperationIds.Add(current.Entry.Id);
+                        currentRecoveryDetail ??=
+                            $"The journal could not record the recovery state of '{current.Entry.SourceRelativePath}'.";
+                    }
+                }
             }
 
-            var rollback = await RollBackAsync(completed, progress);
-            var status = rollback.FailedCount > 0
+            var rollback = await RollBackAsync(
+                completed,
+                progress,
+                processedOperationCount,
+                run.PlannedOperationCount,
+                sourceBase,
+                destinationBase);
+            var unresolvedCount = needsAttentionOperationIds.Count + rollback.FailedCount;
+            var status = unresolvedCount > 0
                 ? AudiobookExecutionRunStatus.FailedNeedsRecovery
                 : cancelled
                     ? AudiobookExecutionRunStatus.CancelledRolledBack
                     : AudiobookExecutionRunStatus.FailedRolledBack;
-            var message = rollback.FailedCount > 0
-                ? $"Execution stopped and {rollback.FailedCount:N0} move{(rollback.FailedCount == 1 ? string.Empty : "s")} could not be recovered automatically."
+            var message = unresolvedCount > 0
+                ? $"Execution stopped and {unresolvedCount:N0} file operation{(unresolvedCount == 1 ? string.Empty : "s")} could not be recovered automatically."
                 : cancelled
                     ? $"Execution cancelled; {rollback.RolledBackCount:N0} completed move{(rollback.RolledBackCount == 1 ? string.Empty : "s")} rolled back."
                     : $"Execution stopped safely; {rollback.RolledBackCount:N0} completed move{(rollback.RolledBackCount == 1 ? string.Empty : "s")} rolled back.";
+            if (!string.IsNullOrWhiteSpace(currentRecoveryDetail))
+            {
+                message += $" {currentRecoveryDetail}";
+            }
+
             var errorMessage = $"{exception.Message} {message}";
             var journalUpdated = await TryUpdateRunAsync(
                 run.Id,
@@ -221,8 +377,8 @@ public sealed class AudiobookBatchExecutionService(
             return new AudiobookExecutionResult(
                 run.Id,
                 status,
-                prepared.Count,
-                completed.Count,
+                run.PlannedOperationCount + preparation.AlreadyCompletedCount,
+                completed.Count + preparation.AlreadyCompletedCount,
                 rollback.RolledBackCount,
                 $"{message} {exception.Message}");
         }
@@ -240,7 +396,8 @@ public sealed class AudiobookBatchExecutionService(
         var run = await journalStore.LoadLatestAsync(librarySourceId, cancellationToken);
         if (run?.Status is not (AudiobookExecutionRunStatus.Prepared or
             AudiobookExecutionRunStatus.Running or
-            AudiobookExecutionRunStatus.FailedNeedsRecovery))
+            AudiobookExecutionRunStatus.FailedNeedsRecovery or
+            AudiobookExecutionRunStatus.CompletedNeedsRecovery))
         {
             return new AudiobookExecutionResult(
                 run?.Id, run?.Status, run?.PlannedOperationCount ?? 0,
@@ -248,13 +405,25 @@ public sealed class AudiobookBatchExecutionService(
                 "There is no interrupted execution to recover.");
         }
 
-        var sourceBase = Path.GetFullPath(run.SourceRoot ?? sourceRoot)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var destinationBase = Path.GetFullPath(run.DestinationRoot ?? destinationRoot)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var sourceBase = NormalizeRoot(run.SourceRoot ?? sourceRoot);
+        var destinationBase = NormalizeRoot(run.DestinationRoot ?? destinationRoot);
         var rolledBack = 0;
         var failed = 0;
-        var operations = run.Operations.OrderByDescending(operation => operation.SortOrder).ToList();
+        var manualReviewOperations = new List<AudiobookExecutionOperationEntry>();
+        var completedRunNeedsRecovery =
+            run.Status == AudiobookExecutionRunStatus.CompletedNeedsRecovery;
+        var operations = run.Operations
+            .Where(operation => completedRunNeedsRecovery
+                ? operation.Status is
+                    AudiobookExecutionOperationStatus.RollbackFailed or
+                    AudiobookExecutionOperationStatus.NeedsAttention
+                : operation.Status is
+                    AudiobookExecutionOperationStatus.Running or
+                    AudiobookExecutionOperationStatus.Completed or
+                    AudiobookExecutionOperationStatus.RollbackFailed or
+                    AudiobookExecutionOperationStatus.NeedsAttention)
+            .OrderByDescending(operation => operation.SortOrder)
+            .ToList();
         for (var index = 0; index < operations.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -269,24 +438,72 @@ public sealed class AudiobookBatchExecutionService(
                 operations.Count,
                 operation.SourceRelativePath,
                 $"Recovering operation {index + 1:N0} of {operations.Count:N0}"));
+            var recoveryFailureStatus = operation.Status is
+                AudiobookExecutionOperationStatus.NeedsAttention or
+                AudiobookExecutionOperationStatus.Running
+                ? AudiobookExecutionOperationStatus.NeedsAttention
+                : AudiobookExecutionOperationStatus.RollbackFailed;
             try
             {
-                var sourceExists = fileOperator.FileExists(source);
-                var destinationExists = fileOperator.FileExists(destination);
-                if (operation.Kind == AudiobookFileOperationKind.UpdateMetadata)
+                EnsureLibraryRootsAvailable(sourceBase, destinationBase);
+                var sourceExists = FileExistsWithinAvailableRoot(
+                    source,
+                    sourceBase,
+                    "source");
+                var destinationExists = FileExistsWithinAvailableRoot(
+                    destination,
+                    destinationBase,
+                    "destination");
+                if (operation.Status == AudiobookExecutionOperationStatus.NeedsAttention)
+                {
+                    if (operation.Kind == AudiobookFileOperationKind.UpdateMetadata)
+                    {
+                        if (!sourceExists)
+                        {
+                            throw new FileNotFoundException(
+                                "The file recorded for metadata recovery is unavailable.",
+                                source);
+                        }
+                    }
+                    else if (!sourceExists || destinationExists)
+                    {
+                        var state = sourceExists
+                            ? "both recorded paths exist"
+                            : destinationExists
+                                ? "only the unverified destination exists"
+                                : "neither recorded path exists";
+                        throw new InvalidOperationException(
+                            $"Manual review is still required because {state}. Metaroq will not move an unverified destination automatically.");
+                    }
+
+                    recoveryFailureStatus = AudiobookExecutionOperationStatus.RollbackFailed;
+                    RestoreJournalledMetadata(operation, source);
+                    rolledBack++;
+                }
+                else if (operation.Kind == AudiobookFileOperationKind.UpdateMetadata)
                 {
                     if (!sourceExists)
                     {
+                        recoveryFailureStatus = AudiobookExecutionOperationStatus.NeedsAttention;
                         throw new FileNotFoundException(
                             "The file recorded for metadata recovery is unavailable.",
                             source);
                     }
 
+                    recoveryFailureStatus = AudiobookExecutionOperationStatus.RollbackFailed;
                     RestoreJournalledMetadata(operation, source);
                     rolledBack++;
                 }
                 else if (destinationExists && !sourceExists)
                 {
+                    if (completedRunNeedsRecovery ||
+                        operation.Status == AudiobookExecutionOperationStatus.Running)
+                    {
+                        recoveryFailureStatus = AudiobookExecutionOperationStatus.NeedsAttention;
+                        throw new IOException(
+                            "The destination cannot be moved automatically because the operation was not journalled as verified complete.");
+                    }
+
                     var sourceDirectory = Path.GetDirectoryName(source);
                     if (string.IsNullOrWhiteSpace(sourceDirectory))
                     {
@@ -300,36 +517,68 @@ public sealed class AudiobookBatchExecutionService(
                 }
                 else if (sourceExists && !destinationExists)
                 {
+                    recoveryFailureStatus = AudiobookExecutionOperationStatus.RollbackFailed;
                     RestoreJournalledMetadata(operation, source);
+                    rolledBack++;
                 }
                 else
                 {
+                    recoveryFailureStatus = AudiobookExecutionOperationStatus.NeedsAttention;
                     throw new IOException(sourceExists
                         ? $"Recovery will not overwrite either existing path for {operation.SourceRelativePath}."
                         : $"Neither recorded path exists for {operation.SourceRelativePath}.");
                 }
 
-                await TryUpdateOperationAsync(
-                    operation.Id,
-                    AudiobookExecutionOperationStatus.RolledBack,
-                    null);
+                if (!await TryUpdateOperationAsync(
+                        operation.Id,
+                        completedRunNeedsRecovery
+                            ? AudiobookExecutionOperationStatus.Failed
+                            : AudiobookExecutionOperationStatus.RolledBack,
+                        null))
+                {
+                    failed++;
+                }
             }
             catch (Exception exception)
             {
                 failed++;
+                if (recoveryFailureStatus == AudiobookExecutionOperationStatus.NeedsAttention)
+                {
+                    manualReviewOperations.Add(operation);
+                }
+
                 await TryUpdateOperationAsync(
                     operation.Id,
-                    AudiobookExecutionOperationStatus.RollbackFailed,
+                    recoveryFailureStatus,
                     exception.Message);
             }
         }
 
-        var status = failed == 0
-            ? AudiobookExecutionRunStatus.FailedRolledBack
-            : AudiobookExecutionRunStatus.FailedNeedsRecovery;
-        var message = failed == 0
-            ? $"Interrupted execution recovered safely; {rolledBack:N0} file operation{(rolledBack == 1 ? string.Empty : "s")} restored, including original metadata."
-            : $"Recovery needs attention: {failed:N0} operation{(failed == 1 ? string.Empty : "s")} could not be restored automatically.";
+        var status = completedRunNeedsRecovery
+            ? failed == 0
+                ? AudiobookExecutionRunStatus.Completed
+                : AudiobookExecutionRunStatus.CompletedNeedsRecovery
+            : failed == 0
+                ? AudiobookExecutionRunStatus.FailedRolledBack
+                : AudiobookExecutionRunStatus.FailedNeedsRecovery;
+        var message = completedRunNeedsRecovery
+            ? failed == 0
+                ? $"Skipped-file recovery completed; {rolledBack:N0} file operation{(rolledBack == 1 ? string.Empty : "s")} restored to its original state. Successful files were kept at their destinations."
+                : $"Recovery still needs attention: {failed:N0} skipped file{(failed == 1 ? string.Empty : "s")} could not be restored automatically. Successful files were kept at their destinations."
+            : failed == 0
+                ? $"Interrupted execution recovered safely; {rolledBack:N0} file operation{(rolledBack == 1 ? string.Empty : "s")} restored, including original metadata."
+                : $"Recovery needs attention: {failed:N0} operation{(failed == 1 ? string.Empty : "s")} could not be restored automatically.";
+        if (manualReviewOperations.Count > 0)
+        {
+            var first = manualReviewOperations[0];
+            message +=
+                $" Manual review is required for '{first.SourceRelativePath}' -> '{first.DestinationRelativePath}'. Check both locations, leave the correct file at the source path with the destination path clear, then use Recover interrupted again.";
+            if (manualReviewOperations.Count > 1)
+            {
+                message += $" {manualReviewOperations.Count - 1:N0} more operation{(manualReviewOperations.Count == 2 ? string.Empty : "s")} also need manual review.";
+            }
+        }
+
         await journalStore.UpdateRunAsync(
             run.Id,
             status,
@@ -372,20 +621,9 @@ public sealed class AudiobookBatchExecutionService(
         AudiobookExecutionRunEntry? latestRun,
         CancellationToken cancellationToken)
     {
-        var sourceBase = Path.GetFullPath(sourceRoot)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var destinationBase = Path.GetFullPath(destinationRoot)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (!fileOperator.DirectoryExists(sourceBase))
-        {
-            throw new DirectoryNotFoundException($"The library source folder is unavailable: {sourceBase}");
-        }
-
-        if (!fileOperator.DirectoryExists(destinationBase))
-        {
-            throw new DirectoryNotFoundException(
-                $"The library destination folder is unavailable: {destinationBase}");
-        }
+        var sourceBase = NormalizeRoot(sourceRoot);
+        var destinationBase = NormalizeRoot(destinationRoot);
+        EnsureLibraryRootsAvailable(sourceBase, destinationBase);
 
         var approvedPlans = candidates
             .Select(candidate => candidate.BatchPlan)
@@ -436,6 +674,7 @@ public sealed class AudiobookBatchExecutionService(
                 .ToList()
             : [];
         var prepared = new List<PreparedOperation>(operations.Count);
+        var failedOperations = new List<AudiobookExecutionOperationEntry>();
         var alreadyCompletedCount = 0;
         var artworkCache = new Dictionary<string, AudiobookArtwork?>(StringComparer.OrdinalIgnoreCase);
         var unavailableCoverUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -452,6 +691,8 @@ public sealed class AudiobookBatchExecutionService(
                 StringComparer.Ordinal);
         for (var index = 0; index < operations.Count; index++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            EnsureLibraryRootsAvailable(sourceBase, destinationBase);
             var item = operations[index];
             if (string.IsNullOrWhiteSpace(item.Plan.InputSignature))
             {
@@ -463,41 +704,6 @@ public sealed class AudiobookBatchExecutionService(
                 destinationBase,
                 item.Operation.DestinationRelativePath,
                 "destination");
-            if (!fileOperator.FileExists(source))
-            {
-                var completedOperation = completedJournalOperations.FirstOrDefault(operation =>
-                    operation.PlanKey == item.Plan.PlanKey &&
-                    operation.InputSignature == item.Plan.InputSignature &&
-                    operation.MediaItemId == item.Operation.MediaItemId &&
-                    operation.Kind == item.Operation.Kind &&
-                    string.Equals(
-                        operation.SourceRelativePath,
-                        item.Operation.SourceRelativePath,
-                        StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(
-                        operation.DestinationRelativePath,
-                        item.Operation.DestinationRelativePath,
-                        StringComparison.OrdinalIgnoreCase));
-                if (completedOperation is not null &&
-                    fileOperator.FileExists(destination) &&
-                    fileOperator.GetSnapshot(destination) == new AudiobookFileSnapshot(
-                        completedOperation.SourceSizeBytes,
-                        completedOperation.SourceModifiedAtUtc))
-                {
-                    alreadyCompletedCount++;
-                    continue;
-                }
-
-                throw new FileNotFoundException("An approved source file is no longer available.", source);
-            }
-
-            if (item.Operation.Kind != AudiobookFileOperationKind.UpdateMetadata &&
-                fileOperator.FileExists(destination))
-            {
-                throw new IOException($"Metaroq will not overwrite the existing destination: {destination}");
-            }
-
-            var snapshot = fileOperator.GetSnapshot(source);
             if (!partsByMediaItemId.TryGetValue(item.Operation.MediaItemId, out var part) ||
                 !proposalsByPlanKey.TryGetValue(item.Plan.PlanKey, out var proposal))
             {
@@ -516,46 +722,124 @@ public sealed class AudiobookBatchExecutionService(
                     $"The approved track order could not be resolved for {item.Operation.SourceRelativePath}.");
             }
 
-            var originalMetadata = metadataWriter.Read(source);
-            var coverArtwork = await TryFetchCoverArtworkAsync(
-                proposal.CoverUrl,
-                artworkCache,
-                unavailableCoverUrls,
-                cancellationToken);
-            var desiredMetadata = CreateMetadataUpdate(
-                proposal,
-                part,
-                trackIndex,
-                planOperations.Count,
-                coverArtwork);
-            var entry = new AudiobookExecutionOperationEntry(
-                Guid.NewGuid(),
-                index,
-                item.Plan.PlanKey,
-                item.Plan.InputSignature,
-                item.Operation.MediaItemId,
-                item.Operation.SourceRelativePath,
-                item.Operation.DestinationRelativePath,
-                item.Operation.Kind,
-                AudiobookExecutionOperationStatus.Pending,
-                snapshot.SizeBytes,
-                snapshot.ModifiedAtUtc,
-                OriginalMetadataJson: JsonSerializer.Serialize(originalMetadata));
-            prepared.Add(new PreparedOperation(
-                entry,
-                source,
-                destination,
-                snapshot,
-                originalMetadata,
-                desiredMetadata));
+            AudiobookFileSnapshot? snapshot = null;
+            AudiobookTagState? originalMetadata = null;
+            try
+            {
+                if (!FileExistsWithinAvailableRoot(source, sourceBase, "source"))
+                {
+                    var completedOperation = completedJournalOperations.FirstOrDefault(operation =>
+                        operation.PlanKey == item.Plan.PlanKey &&
+                        operation.InputSignature == item.Plan.InputSignature &&
+                        operation.MediaItemId == item.Operation.MediaItemId &&
+                        operation.Kind == item.Operation.Kind &&
+                        string.Equals(
+                            operation.SourceRelativePath,
+                            item.Operation.SourceRelativePath,
+                            StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(
+                            operation.DestinationRelativePath,
+                            item.Operation.DestinationRelativePath,
+                            StringComparison.OrdinalIgnoreCase));
+                    if (completedOperation is not null &&
+                        FileExistsWithinAvailableRoot(
+                            destination,
+                            destinationBase,
+                            "destination"))
+                    {
+                        alreadyCompletedCount++;
+                        continue;
+                    }
+
+                    throw new FileNotFoundException(
+                        "An approved source file is no longer available.",
+                        source);
+                }
+
+                if (item.Operation.Kind != AudiobookFileOperationKind.UpdateMetadata &&
+                    FileExistsWithinAvailableRoot(
+                        destination,
+                        destinationBase,
+                        "destination"))
+                {
+                    throw new IndividualFileOperationException(
+                        $"Metaroq will not overwrite the existing destination: {destination}");
+                }
+
+                snapshot = fileOperator.GetSnapshot(source);
+                originalMetadata = metadataWriter.Read(source);
+                var coverArtwork = await TryFetchCoverArtworkAsync(
+                    proposal.CoverUrl,
+                    artworkCache,
+                    unavailableCoverUrls,
+                    cancellationToken);
+                var desiredMetadata = CreateMetadataUpdate(
+                    proposal,
+                    part,
+                    trackIndex,
+                    planOperations.Count,
+                    coverArtwork);
+                var entry = new AudiobookExecutionOperationEntry(
+                    Guid.NewGuid(),
+                    index,
+                    item.Plan.PlanKey,
+                    item.Plan.InputSignature,
+                    item.Operation.MediaItemId,
+                    item.Operation.SourceRelativePath,
+                    item.Operation.DestinationRelativePath,
+                    item.Operation.Kind,
+                    AudiobookExecutionOperationStatus.Pending,
+                    snapshot.SizeBytes,
+                    snapshot.ModifiedAtUtc,
+                    OriginalMetadataJson: JsonSerializer.Serialize(originalMetadata));
+                prepared.Add(new PreparedOperation(
+                    entry,
+                    source,
+                    destination,
+                    snapshot,
+                    originalMetadata,
+                    desiredMetadata));
+            }
+            catch (Exception exception) when (
+                !cancellationToken.IsCancellationRequested &&
+                IsIndividualFileFailure(exception))
+            {
+                var failureMessage = LimitJournalMessage(exception.Message);
+                failedOperations.Add(new AudiobookExecutionOperationEntry(
+                    Guid.NewGuid(),
+                    index,
+                    item.Plan.PlanKey,
+                    item.Plan.InputSignature,
+                    item.Operation.MediaItemId,
+                    item.Operation.SourceRelativePath,
+                    item.Operation.DestinationRelativePath,
+                    item.Operation.Kind,
+                    AudiobookExecutionOperationStatus.Failed,
+                    snapshot?.SizeBytes ?? 0,
+                    snapshot?.ModifiedAtUtc ?? DateTime.UnixEpoch,
+                    failureMessage,
+                    originalMetadata is null
+                        ? null
+                        : JsonSerializer.Serialize(originalMetadata)));
+            }
         }
 
-        return new PreparationResult(prepared, alreadyCompletedCount, unavailableCoverUrls.Count);
+        return new PreparationResult(
+            prepared,
+            failedOperations,
+            alreadyCompletedCount,
+            unavailableCoverUrls.Count);
     }
 
-    private void Revalidate(PreparedOperation operation)
+    private void Revalidate(
+        PreparedOperation operation,
+        string sourceRoot,
+        string destinationRoot)
     {
-        if (!fileOperator.FileExists(operation.SourceFullPath))
+        if (!FileExistsWithinAvailableRoot(
+                operation.SourceFullPath,
+                sourceRoot,
+                "source"))
         {
             throw new FileNotFoundException(
                 "A source file disappeared after the execution preflight.",
@@ -563,31 +847,260 @@ public sealed class AudiobookBatchExecutionService(
         }
 
         if (operation.Entry.Kind != AudiobookFileOperationKind.UpdateMetadata &&
-            fileOperator.FileExists(operation.DestinationFullPath))
+            FileExistsWithinAvailableRoot(
+                operation.DestinationFullPath,
+                destinationRoot,
+                "destination"))
         {
-            throw new IOException($"Metaroq will not overwrite the existing destination: {operation.DestinationFullPath}");
+            throw new IndividualFileOperationException(
+                $"Metaroq will not overwrite the existing destination: {operation.DestinationFullPath}");
         }
 
         var current = fileOperator.GetSnapshot(operation.SourceFullPath);
         if (current != operation.Snapshot)
         {
-            throw new IOException($"The source file changed after preflight: {operation.SourceFullPath}");
+            throw new IndividualFileOperationException(
+                $"The source file changed after preflight: {operation.SourceFullPath}");
         }
     }
 
+    private async Task ExecuteFileOperationAsync(
+        PreparedOperation operation,
+        string sourceRoot,
+        string destinationRoot,
+        CancellationToken cancellationToken)
+    {
+        Revalidate(operation, sourceRoot, destinationRoot);
+        var destinationDirectory = Path.GetDirectoryName(operation.DestinationFullPath);
+        if (string.IsNullOrWhiteSpace(destinationDirectory))
+        {
+            throw new InvalidOperationException("The destination folder could not be resolved.");
+        }
+
+        fileOperator.CreateDirectory(destinationDirectory);
+        operation.MetadataWriteAttempted = true;
+        metadataWriter.Write(operation.SourceFullPath, operation.DesiredMetadata);
+        operation.WrittenSnapshot = fileOperator.GetSnapshot(operation.SourceFullPath);
+        if (operation.Entry.Kind != AudiobookFileOperationKind.UpdateMetadata)
+        {
+            await MoveWithSharingViolationRetryAsync(
+                operation.SourceFullPath,
+                operation.DestinationFullPath,
+                cancellationToken);
+            if (FileExistsWithinAvailableRoot(
+                    operation.SourceFullPath,
+                    sourceRoot,
+                    "source") ||
+                !FileExistsWithinAvailableRoot(
+                    operation.DestinationFullPath,
+                    destinationRoot,
+                    "destination") ||
+                fileOperator.GetSnapshot(operation.DestinationFullPath) != operation.WrittenSnapshot)
+            {
+                throw new IndividualFileOperationException(
+                    "The move did not reach a verified final state; both source and destination have been preserved for review.");
+            }
+        }
+    }
+
+    private async Task MoveWithSharingViolationRetryAsync(
+        string sourcePath,
+        string destinationPath,
+        CancellationToken cancellationToken)
+    {
+        const int maximumAttempts = 3;
+        for (var attempt = 1; attempt <= maximumAttempts; attempt++)
+        {
+            try
+            {
+                fileOperator.Move(sourcePath, destinationPath);
+                return;
+            }
+            catch (IOException exception) when (
+                attempt < maximumAttempts &&
+                IsSharingViolation(exception))
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(150 * attempt), cancellationToken);
+            }
+        }
+    }
+
+    private static bool IsSharingViolation(IOException exception) =>
+        (exception.HResult & 0xFFFF) is 32 or 33;
+
+    private OperationFailureResolution ReconcileOperationFailure(
+        PreparedOperation operation,
+        Exception operationException,
+        string sourceRoot,
+        string destinationRoot)
+    {
+        EnsureLibraryRootsAvailable(sourceRoot, destinationRoot);
+        var sourceExists = FileExistsWithinAvailableRoot(
+            operation.SourceFullPath,
+            sourceRoot,
+            "source");
+        if (operation.Entry.Kind != AudiobookFileOperationKind.UpdateMetadata)
+        {
+            var destinationExists = FileExistsWithinAvailableRoot(
+                operation.DestinationFullPath,
+                destinationRoot,
+                "destination");
+            if (!sourceExists && destinationExists)
+            {
+                try
+                {
+                    if (operation.WrittenSnapshot is not null &&
+                        fileOperator.GetSnapshot(operation.DestinationFullPath) == operation.WrittenSnapshot)
+                    {
+                        return new OperationFailureResolution(
+                            true,
+                            AudiobookExecutionOperationStatus.Failed,
+                            $"{operationException.Message} The destination exists, matches the updated source, and the source is absent, so the move was verified as complete.");
+                    }
+                }
+                catch (Exception verificationException) when (
+                    IsIndividualFileFailure(verificationException))
+                {
+                    return new OperationFailureResolution(
+                        false,
+                        AudiobookExecutionOperationStatus.NeedsAttention,
+                        $"{operationException.Message} The destination exists and the source is absent, but the moved file could not be verified: {verificationException.Message}");
+                }
+
+                return new OperationFailureResolution(
+                    false,
+                    AudiobookExecutionOperationStatus.NeedsAttention,
+                    $"{operationException.Message} The destination exists and the source is absent, but the moved file does not match the last verified source state.");
+            }
+
+            if (!sourceExists || destinationExists)
+            {
+                var state = sourceExists
+                    ? "both source and destination exist"
+                    : destinationExists
+                        ? "only the destination exists"
+                        : "neither source nor destination is currently accessible";
+                return new OperationFailureResolution(
+                    false,
+                    AudiobookExecutionOperationStatus.NeedsAttention,
+                    $"{operationException.Message} The file needs attention because {state}.");
+            }
+        }
+        else if (!sourceExists)
+        {
+            return new OperationFailureResolution(
+                false,
+                AudiobookExecutionOperationStatus.NeedsAttention,
+                $"{operationException.Message} The metadata file is no longer accessible at its recorded path.");
+        }
+
+        try
+        {
+            TryRestoreMetadata(
+                operation,
+                operation.SourceFullPath,
+                throwOnFailure: true);
+            return new OperationFailureResolution(
+                false,
+                AudiobookExecutionOperationStatus.Failed,
+                operationException.Message);
+        }
+        catch (Exception restoreException) when (IsIndividualFileFailure(restoreException))
+        {
+            return new OperationFailureResolution(
+                false,
+                AudiobookExecutionOperationStatus.RollbackFailed,
+                $"{operationException.Message} Original metadata could not be restored: {restoreException.Message}");
+        }
+    }
+
+    private static bool IsIndividualFileFailure(Exception exception)
+    {
+        if (exception is IndividualFileOperationException or
+            FileNotFoundException or
+            PathTooLongException or
+            InvalidDataException or
+            UnauthorizedAccessException or
+            System.Security.SecurityException)
+        {
+            return true;
+        }
+
+        return exception is IOException ioException &&
+               (IsSharingViolation(ioException) || IsDestinationAlreadyExists(ioException));
+    }
+
+    private static bool IsDestinationAlreadyExists(IOException exception) =>
+        (exception.HResult & 0xFFFF) is 80 or 183;
+
+    private static string? BuildOperationFailureSummary(IReadOnlyList<string> failures)
+    {
+        if (failures.Count == 0)
+        {
+            return null;
+        }
+
+        const int sampleCount = 3;
+        var samples = string.Join(" | ", failures.Take(sampleCount));
+        var remaining = failures.Count - sampleCount;
+        var message = remaining > 0
+            ? $"{failures.Count:N0} file operations were skipped. {samples} | and {remaining:N0} more"
+            : $"{failures.Count:N0} file operation{(failures.Count == 1 ? string.Empty : "s")} {(failures.Count == 1 ? "was" : "were")} skipped. {samples}";
+        return LimitJournalMessage(message);
+    }
+
+    private static string ToOperationFailureMessage(
+        AudiobookExecutionOperationEntry operation) =>
+        $"{operation.SourceRelativePath}: {operation.ErrorMessage ?? "The file could not be prepared."}";
+
+    private static string BuildSkippedResultMessage(
+        int failedCount,
+        int needsAttentionCount)
+    {
+        if (failedCount == 0)
+        {
+            return string.Empty;
+        }
+
+        var message =
+            $" {failedCount:N0} file{(failedCount == 1 ? string.Empty : "s")} could not be accessed or updated and {(failedCount == 1 ? "was" : "were")} skipped; processing continued and successful files were kept at their destinations.";
+        return needsAttentionCount == 0
+            ? message
+            : $"{message} {needsAttentionCount:N0} skipped file{(needsAttentionCount == 1 ? string.Empty : "s")} could not be returned to a verified original state and {(needsAttentionCount == 1 ? "needs" : "need")} attention.";
+    }
+
+    private static string BuildCompletionMessage(
+        int completedCount,
+        int needsAttentionCount) =>
+        needsAttentionCount == 0
+            ? $"Execution complete: {completedCount:N0} file{(completedCount == 1 ? string.Empty : "s")} updated and organised safely."
+            : $"Execution finished: {completedCount:N0} file{(completedCount == 1 ? string.Empty : "s")} updated and organised.";
+
+    private static string LimitJournalMessage(string message) =>
+        message.Length <= 2048 ? message : $"{message[..2045]}...";
+
     private async Task<RollbackResult> RollBackAsync(
         IReadOnlyList<PreparedOperation> completed,
-        IProgress<AudiobookExecutionProgress>? progress)
+        IProgress<AudiobookExecutionProgress>? progress,
+        int processedOperationCount,
+        int plannedOperationCount,
+        string sourceRoot,
+        string destinationRoot)
     {
         var rolledBack = 0;
         var failed = 0;
+        var attempted = 0;
         foreach (var operation in completed.Reverse())
         {
+            attempted++;
             try
             {
                 if (operation.Entry.Kind == AudiobookFileOperationKind.UpdateMetadata)
                 {
-                    if (!fileOperator.FileExists(operation.SourceFullPath))
+                    if (!FileExistsWithinAvailableRoot(
+                            operation.SourceFullPath,
+                            sourceRoot,
+                            "source"))
                     {
                         throw new FileNotFoundException(
                             "The file is unavailable for metadata rollback.",
@@ -599,12 +1112,18 @@ public sealed class AudiobookBatchExecutionService(
                 }
                 else
                 {
-                    if (fileOperator.FileExists(operation.SourceFullPath))
+                    if (FileExistsWithinAvailableRoot(
+                            operation.SourceFullPath,
+                            sourceRoot,
+                            "source"))
                     {
                         throw new IOException($"Rollback would overwrite the restored source: {operation.SourceFullPath}");
                     }
 
-                    if (!fileOperator.FileExists(operation.DestinationFullPath))
+                    if (!FileExistsWithinAvailableRoot(
+                            operation.DestinationFullPath,
+                            destinationRoot,
+                            "destination"))
                     {
                         throw new FileNotFoundException(
                             "The moved destination is unavailable for rollback.",
@@ -623,15 +1142,13 @@ public sealed class AudiobookBatchExecutionService(
                     rolledBack++;
                 }
 
-                await TryUpdateOperationAsync(
-                    operation.Entry.Id,
-                    AudiobookExecutionOperationStatus.RolledBack,
-                    null);
-                progress?.Report(new AudiobookExecutionProgress(
-                    rolledBack,
-                    completed.Count,
-                    operation.Entry.SourceRelativePath,
-                    $"Rolling back {rolledBack:N0} of {completed.Count:N0} completed moves"));
+                if (!await TryUpdateOperationAsync(
+                        operation.Entry.Id,
+                        AudiobookExecutionOperationStatus.RolledBack,
+                        null))
+                {
+                    failed++;
+                }
             }
             catch (Exception rollbackException)
             {
@@ -641,12 +1158,18 @@ public sealed class AudiobookBatchExecutionService(
                     AudiobookExecutionOperationStatus.RollbackFailed,
                     rollbackException.Message);
             }
+
+            progress?.Report(new AudiobookExecutionProgress(
+                processedOperationCount,
+                plannedOperationCount,
+                operation.Entry.SourceRelativePath,
+                $"Rollback attempt {attempted:N0} of {completed.Count:N0}: {rolledBack:N0} restored, {failed:N0} need recovery"));
         }
 
         return new RollbackResult(rolledBack, failed);
     }
 
-    private async Task TryUpdateOperationAsync(
+    private async Task<bool> TryUpdateOperationAsync(
         Guid operationId,
         AudiobookExecutionOperationStatus status,
         string? errorMessage)
@@ -658,10 +1181,12 @@ public sealed class AudiobookBatchExecutionService(
                 status,
                 errorMessage,
                 CancellationToken.None);
+            return true;
         }
         catch
         {
             // The run-level journal update still captures the recovery outcome.
+            return false;
         }
     }
 
@@ -693,6 +1218,41 @@ public sealed class AudiobookBatchExecutionService(
         }
     }
 
+    private static string NormalizeRoot(string root) =>
+        Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+
+    private void EnsureLibraryRootsAvailable(string sourceRoot, string destinationRoot)
+    {
+        EnsureLibraryRootAvailable(sourceRoot, "source");
+        EnsureLibraryRootAvailable(destinationRoot, "destination");
+    }
+
+    private bool FileExistsWithinAvailableRoot(
+        string path,
+        string root,
+        string rootRole)
+    {
+        var exists = fileOperator.FileExists(path);
+        if (!exists)
+        {
+            // File-system existence APIs can report false when a backing drive or
+            // network share disappears. Recheck the root before treating the
+            // individual path as genuinely absent.
+            EnsureLibraryRootAvailable(root, rootRole);
+        }
+
+        return exists;
+    }
+
+    private void EnsureLibraryRootAvailable(string root, string rootRole)
+    {
+        if (!fileOperator.DirectoryExists(root))
+        {
+            throw new DirectoryNotFoundException(
+                $"The library {rootRole} folder is unavailable: {root}");
+        }
+    }
+
     private static string ResolveInsideRoot(string root, string relativePath, string pathRole)
     {
         if (Path.IsPathRooted(relativePath))
@@ -701,7 +1261,9 @@ public sealed class AudiobookBatchExecutionService(
         }
 
         var fullPath = Path.GetFullPath(Path.Combine(root, relativePath));
-        var rootPrefix = root + Path.DirectorySeparatorChar;
+        var rootPrefix = Path.EndsInDirectorySeparator(root)
+            ? root
+            : root + Path.DirectorySeparatorChar;
         if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException($"The {pathRole} path escapes the selected library.");
@@ -888,12 +1450,26 @@ public sealed class AudiobookBatchExecutionService(
         public AudiobookTagState OriginalMetadata { get; } = originalMetadata;
         public AudiobookTagUpdate DesiredMetadata { get; } = desiredMetadata;
         public bool MetadataWriteAttempted { get; set; }
+        public AudiobookFileSnapshot? WrittenSnapshot { get; set; }
     }
 
     private sealed record PreparationResult(
         List<PreparedOperation> Operations,
+        IReadOnlyList<AudiobookExecutionOperationEntry> FailedOperations,
         int AlreadyCompletedCount,
         int UnavailableCoverCount);
+
+    private sealed record OperationFailureResolution(
+        bool OperationCompleted,
+        AudiobookExecutionOperationStatus FailureStatus,
+        string Message)
+    {
+        public bool NeedsAttention => FailureStatus is
+            AudiobookExecutionOperationStatus.RollbackFailed or
+            AudiobookExecutionOperationStatus.NeedsAttention;
+    }
+
+    private sealed class IndividualFileOperationException(string message) : IOException(message);
 
     private sealed record CoverSidecarResult(int CreatedCount, int ExistingCount, int FailedCount);
 

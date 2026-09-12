@@ -4,9 +4,19 @@ namespace Archivio.Infrastructure;
 
 internal sealed class LocalAudiobookFileOperator : IAudiobookFileOperator
 {
-    public bool FileExists(string path) => File.Exists(path);
+    public bool FileExists(string path)
+    {
+        var attributes = TryGetAttributes(path);
+        return attributes is not null &&
+               !attributes.Value.HasFlag(FileAttributes.Directory);
+    }
 
-    public bool DirectoryExists(string path) => Directory.Exists(path);
+    public bool DirectoryExists(string path)
+    {
+        var attributes = TryGetAttributes(path);
+        return attributes is not null &&
+               attributes.Value.HasFlag(FileAttributes.Directory);
+    }
 
     public AudiobookFileSnapshot GetSnapshot(string path)
     {
@@ -23,5 +33,21 @@ internal sealed class LocalAudiobookFileOperator : IAudiobookFileOperator
     {
         using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
         stream.Write(data);
+    }
+
+    private static FileAttributes? TryGetAttributes(string path)
+    {
+        try
+        {
+            return File.GetAttributes(path);
+        }
+        catch (FileNotFoundException)
+        {
+            return null;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return null;
+        }
     }
 }

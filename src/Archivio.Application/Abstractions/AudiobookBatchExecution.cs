@@ -7,7 +7,8 @@ public enum AudiobookExecutionRunStatus
     Completed = 2,
     FailedRolledBack = 3,
     FailedNeedsRecovery = 4,
-    CancelledRolledBack = 5
+    CancelledRolledBack = 5,
+    CompletedNeedsRecovery = 6
 }
 
 public enum AudiobookExecutionOperationStatus
@@ -17,7 +18,8 @@ public enum AudiobookExecutionOperationStatus
     Completed = 2,
     RolledBack = 3,
     Failed = 4,
-    RollbackFailed = 5
+    RollbackFailed = 5,
+    NeedsAttention = 6
 }
 
 public sealed record AudiobookFileSnapshot(long SizeBytes, DateTime ModifiedAtUtc);
@@ -66,6 +68,10 @@ public sealed record AudiobookExecutionResult(
     int RolledBackOperationCount,
     string Message)
 {
-    public bool Succeeded => Status == AudiobookExecutionRunStatus.Completed;
-    public bool NeedsRecovery => Status == AudiobookExecutionRunStatus.FailedNeedsRecovery;
+    public bool Succeeded => Status is
+        AudiobookExecutionRunStatus.Completed or
+        AudiobookExecutionRunStatus.CompletedNeedsRecovery;
+    public bool NeedsRecovery => Status is
+        AudiobookExecutionRunStatus.FailedNeedsRecovery or
+        AudiobookExecutionRunStatus.CompletedNeedsRecovery;
 }

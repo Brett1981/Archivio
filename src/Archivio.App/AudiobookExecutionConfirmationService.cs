@@ -13,7 +13,8 @@ internal sealed class AudiobookExecutionConfirmationService : IAudiobookExecutio
             "Each file's embedded metadata will be updated to the approved author, title, genre, year, series, track order, and available cover artwork. " +
             "A Plex-compatible cover file will also be added to the audiobook folder when artwork is available; existing cover files are preserved. " +
             "Every source and destination will be checked again, and existing destinations will never be overwritten. " +
-            "If a later operation fails, completed moves and original metadata will be rolled back where safe.\n\nContinue?";
+            "If an individual file is locked or cannot be updated, that file will be skipped and processing will continue; successful files will remain at their destinations. " +
+            "An explicit cancellation or a system-level interruption will still use the execution journal for safe recovery.\n\nContinue?";
         return MessageBox.Show(
             global::System.Windows.Application.Current?.MainWindow,
             message,

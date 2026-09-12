@@ -83,6 +83,26 @@ public sealed class AudiobookExecutionJournalStoreTests
         Assert.Equal(AudiobookExecutionOperationStatus.Completed, operation.Status);
         Assert.Equal("signature", operation.InputSignature);
         Assert.Equal(1234, operation.SourceSizeBytes);
+
+        await store.UpdateOperationAsync(
+            operationId,
+            AudiobookExecutionOperationStatus.NeedsAttention,
+            "Manual review required.");
+        await store.UpdateRunAsync(
+            run.Id,
+            AudiobookExecutionRunStatus.CompletedNeedsRecovery,
+            1,
+            0,
+            "Manual review required.",
+            started.AddMinutes(2),
+            started.AddMinutes(2));
+        loaded = await store.LoadLatestAsync(source.Id);
+
+        Assert.NotNull(loaded);
+        Assert.Equal(AudiobookExecutionRunStatus.CompletedNeedsRecovery, loaded.Status);
+        operation = Assert.Single(loaded.Operations);
+        Assert.Equal(AudiobookExecutionOperationStatus.NeedsAttention, operation.Status);
+        Assert.Equal("Manual review required.", operation.ErrorMessage);
     }
 
     private sealed class TestDbContextFactory(
