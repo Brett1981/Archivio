@@ -1,0 +1,13 @@
+root = true
+
+[*.{cs,csx}]
+charset = utf-8
+indent_style = space
+indent_size = 4
+end_of_line = crlf
+insert_final_newline = true
+
+# xUnit v3 analyzers: suppress xUnit1051 (CancellationToken forwarding in tests)
+# The codebase has ~484 call sites; suppressing the rule keeps test code concise
+# without requiring TestContext.Current.CancellationToken on every async call.
+dotnet_diagnostic.xUnit1051.severity = none
